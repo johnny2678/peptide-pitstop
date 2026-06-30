@@ -4,6 +4,8 @@ import {
   parseNonNegativeDecimal,
   parseEnum,
   parseDateOrder,
+  clampCloneCount,
+  MAX_CLONE_COUNT,
 } from "./domain";
 
 describe("parsePositiveDecimal", () => {
@@ -70,6 +72,41 @@ describe("parseEnum", () => {
   it("returns null for null/undefined", () => {
     expect(parseEnum(null, units)).toBeNull();
     expect(parseEnum(undefined, units)).toBeNull();
+  });
+});
+
+describe("clampCloneCount", () => {
+  it("accepts whole numbers in range, as number or string", () => {
+    expect(clampCloneCount(1)).toBe(1);
+    expect(clampCloneCount(5)).toBe(5);
+    expect(clampCloneCount("3")).toBe(3);
+    expect(clampCloneCount(" 10 ")).toBe(10);
+  });
+
+  it("clamps above the max down to MAX_CLONE_COUNT", () => {
+    expect(clampCloneCount(MAX_CLONE_COUNT + 1)).toBe(MAX_CLONE_COUNT);
+    expect(clampCloneCount(9999)).toBe(MAX_CLONE_COUNT);
+  });
+
+  it("floors fractions toward the whole number", () => {
+    expect(clampCloneCount(2.9)).toBe(2);
+    expect(clampCloneCount("4.5")).toBe(4);
+  });
+
+  it("rejects < 1, zero, negatives, and fractions that floor below 1", () => {
+    expect(clampCloneCount(0)).toBeNull();
+    expect(clampCloneCount(-3)).toBeNull();
+    expect(clampCloneCount(0.5)).toBeNull();
+  });
+
+  it("rejects blank, null, undefined, and non-numeric", () => {
+    expect(clampCloneCount("")).toBeNull();
+    expect(clampCloneCount("   ")).toBeNull();
+    expect(clampCloneCount(null)).toBeNull();
+    expect(clampCloneCount(undefined)).toBeNull();
+    expect(clampCloneCount("abc")).toBeNull();
+    expect(clampCloneCount(Infinity)).toBeNull();
+    expect(clampCloneCount(NaN)).toBeNull();
   });
 });
 

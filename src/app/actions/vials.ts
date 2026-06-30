@@ -9,7 +9,7 @@ import {
   assertPrescriptionOwned,
   assertPrescriptionCompatible,
 } from "@/lib/auth/ownership";
-import { parsePositiveDecimal, parseEnum } from "@/lib/validation/domain";
+import { parsePositiveDecimal, parseEnum, clampCloneCount } from "@/lib/validation/domain";
 
 export interface VialInput {
   id?: string;
@@ -65,6 +65,50 @@ export async function saveVial(input: VialInput) {
   revalidatePath("/inventory");
   revalidatePath("/");
   return { ok: true as const };
+}
+
+/**
+ * Duplicate a sealed vial `count` times — for when a batch of identical vials
+ * (same peptide, strength, lot, expiry, storage, script) is bought at once and
+ * re-entering each by hand is busywork. Each copy is a fresh SEALED vial:
+ * openedAt/finishedAt reset to null and preparations are NOT copied, because
+ * reconstitution state belongs to one physical vial — copying it would invent
+ * doses that don't exist. Ownership-scoped, count-clamped, audited.
+ */
+export async function cloneVial(id: string, count: number) {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false as const, error: "Not signed in." };
+
+  const n = clampCloneCount(count);
+  if (!n) return { ok: false as const, error: "Choose how many copies to make." };
+
+  const vial = await prisma.vial.findFirst({ where: { id, userId: user.id } });
+  if (!vial) return { ok: false as const, error: "Vial not found." };
+
+  // Carry over batch identity; reset per-physical-vial lifecycle to a fresh seal.
+  const copy = {
+    userId: user.id,
+    peptideId: vial.peptideId,
+    prescriptionId: vial.prescriptionId,
+    labelStrengthMg: vial.labelStrengthMg,
+    lot: vial.lot,
+    expiry: vial.expiry,
+    storageLocation: vial.storageLocation,
+    status: "sealed",
+  };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.vial.createMany({ data: Array.from({ length: n }, () => ({ ...copy })) });
+      await tx.auditLog.create({ data: { userId: user.id, entityType: "Vial", entityId: id, field: "clone", newValue: `cloned ×${n}` } });
+    });
+  } catch (e) {
+    console.error("cloneVial failed", e);
+    return { ok: false as const, error: "Could not clone vial." };
+  }
+  revalidatePath("/inventory");
+  revalidatePath("/");
+  return { ok: true as const, created: n };
 }
 
 export interface LinkVialPrescriptionInput {

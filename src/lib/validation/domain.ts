@@ -39,6 +39,22 @@ export function parseEnum<T extends string>(
   return (allowed as readonly string[]).includes(v) ? (v as T) : null;
 }
 
+/** Upper bound on a single clone operation — guards against a fat-fingered bulk insert. */
+export const MAX_CLONE_COUNT = 24;
+
+/**
+ * Clone count: a whole number clamped to [1, MAX_CLONE_COUNT]. Non-finite,
+ * fractional-rounded-to-zero, or < 1 → null so the caller can reject. Accepts a
+ * number or a raw client string.
+ */
+export function clampCloneCount(v: number | string | null | undefined): number | null {
+  const n = typeof v === "number" ? v : Number((v ?? "").toString().trim());
+  if (!Number.isFinite(n)) return null;
+  const i = Math.floor(n);
+  if (i < 1) return null;
+  return Math.min(i, MAX_CLONE_COUNT);
+}
+
 export type DateOrderResult = { ok: true } | { ok: false; error: string };
 
 /** Coerce a Date or date-string to a valid Date, or null. */
