@@ -112,6 +112,7 @@ export default async function SettingsPage() {
     capacityMl: s.capacityMl.toString(),
     capacityUnits: String(s.capacityUnits),
     increment: s.increment.toString(),
+    mlPerSpray: s.mlPerSpray?.toString() ?? null,
   }));
 
   return (

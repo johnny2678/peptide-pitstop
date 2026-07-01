@@ -98,7 +98,7 @@ function StepRow({
           </label>
           <label className="block w-24 text-xs text-muted">Unit
             <select className={input + " mt-1"} value={unit} onChange={(e) => setUnit(e.target.value)}>
-              {["mcg", "mg", "ml", "units"].map((u) => <option key={u} value={u}>{u}</option>)}
+              {["mcg", "mg", "ml", "units", "sprays"].map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </label>
           <label className="block w-24 text-xs text-muted">Days

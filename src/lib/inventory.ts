@@ -14,7 +14,7 @@ import { dosesPerWeek } from "@/lib/schedule/frequency";
 import { resolveTitration } from "@/lib/titration/resolve";
 import { buildResolveInput } from "@/lib/titration/from-protocol";
 import { perInjectionDose } from "@/lib/titration/dose-basis";
-import type { DoseUnit } from "@/lib/dosing/types";
+import type { DoseUnit, GraduationType } from "@/lib/dosing/types";
 
 // Re-export so existing importers (`@/lib/inventory`) keep working after the
 // move to the pure schedule/frequency module.
@@ -23,11 +23,12 @@ export { dosesPerWeek } from "@/lib/schedule/frequency";
 export interface SyringeDTO {
   id: string;
   name: string;
-  graduationType: "units" | "ml";
+  graduationType: GraduationType;
   unitsPerMl: number;
   capacityMl: string;
   capacityUnits: number;
   increment: string;
+  mlPerSpray: string | null;
 }
 
 export interface VialView {
@@ -138,11 +139,12 @@ export async function getInventory(userId: string, now = new Date()): Promise<Vi
     return {
       id: s.id,
       name: s.name,
-      graduationType: s.graduationType as "units" | "ml",
+      graduationType: s.graduationType as GraduationType,
       unitsPerMl: s.unitsPerMl,
       capacityMl: s.capacityMl.toString(),
       capacityUnits: s.capacityUnits,
       increment: s.increment.toString(),
+      mlPerSpray: s.mlPerSpray?.toString() ?? null,
     };
   };
 
@@ -194,14 +196,16 @@ export async function getInventory(userId: string, now = new Date()): Promise<Vi
             prepType: prep.prepType as "reconstituted" | "premixed",
             concentrationMcgPerMl: new Decimal(prep.concentrationMcgPerMl.toString()),
           },
-          // Only matters for unit-input doses; default U-100 otherwise.
+          // Only matters for unit-input doses (unitsPerMl) and nasal spray-input
+          // doses (mlPerSpray); mcg/mg/ml inputs ignore the device entirely.
           syringe: {
-            name: "",
-            graduationType: "units",
+            name: syr?.name ?? "",
+            graduationType: syr?.graduationType ?? "units",
             unitsPerMl: syr?.unitsPerMl ?? 100,
-            capacityMl: 1,
-            capacityUnits: 100,
-            increment: 1,
+            capacityMl: syr?.capacityMl ?? 1,
+            capacityUnits: syr?.capacityUnits ?? 100,
+            increment: syr?.increment ?? 1,
+            mlPerSpray: syr?.mlPerSpray ?? null,
           },
         });
         if (volumeMl.gt(0)) {

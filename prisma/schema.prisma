@@ -139,11 +139,12 @@ model Syringe {
   userId         String?
   user           User?   @relation(fields: [userId], references: [id])
   name           String
-  graduationType String  // units | ml
+  graduationType String  // units | ml | sprays  (sprays = a nasal sprayer/dropper)
   unitsPerMl     Int     @default(100)
   capacityMl     Decimal
   capacityUnits  Int
   increment      Decimal
+  mlPerSpray     Decimal? // volume per actuation (mL); set only for graduationType "sprays"
 
   doseLogs DoseLog[]
 }

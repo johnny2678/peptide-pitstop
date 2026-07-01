@@ -9,7 +9,7 @@ import { computeDraw } from "@/lib/dosing/engine";
 import { buildOralDoseRecord, isOralDoseUnit } from "@/lib/dosing/oral";
 import { reconcileDoseEditRemaining } from "@/lib/dosing/recompute";
 import { encryptField } from "@/lib/crypto/fieldEncryption";
-import type { DoseUnit } from "@/lib/dosing/types";
+import type { DoseUnit, GraduationType } from "@/lib/dosing/types";
 import { computeRebaseSuggestion } from "@/lib/schedule/rebase-suggest";
 import { plannedDayWindow, doseDeltaMinutes, pickNearestPlanned } from "@/lib/planned/match";
 
@@ -24,8 +24,8 @@ export interface LogDoseInput {
   notes?: string;
   takenAtISO?: string;
   clientUuid?: string;
-  /** "oral" routes the dose through the prep-less / syringe-less oral path. Default injection. */
-  route?: "injection" | "oral";
+  /** "oral" = prep-less/syringe-less oral path; "nasal" = injection path via a sprayer. Default injection. */
+  route?: "injection" | "oral" | "nasal";
   /** The oral peptide being logged (oral has no prep to derive the peptide from). */
   peptideId?: string;
 }
@@ -108,11 +108,12 @@ export async function logDose(input: LogDoseInput): Promise<LogDoseResult> {
     },
     syringe: {
       name: syringe.name,
-      graduationType: syringe.graduationType as "units" | "ml",
+      graduationType: syringe.graduationType as GraduationType,
       unitsPerMl: syringe.unitsPerMl,
       capacityMl: syringe.capacityMl.toString(),
       capacityUnits: syringe.capacityUnits,
       increment: syringe.increment.toString(),
+      mlPerSpray: syringe.mlPerSpray?.toString() ?? null,
     },
     remainingMl: prep.remainingMl.toString(),
   });
@@ -161,9 +162,11 @@ export async function logDose(input: LogDoseInput): Promise<LogDoseResult> {
         doseMcg: draw.deliveredMassMcg.toString(),
         doseInputUnit: input.doseUnit,
         volumeMl: draw.deliveredVolumeMl.toString(),
-        syringeUnits: draw.markingScale === "units" ? draw.markingValue.toString() : null,
+        // markingValue is the device marking: syringe units, or (nasal) spray count.
+        syringeUnits: draw.markingScale === "units" || draw.markingScale === "sprays" ? draw.markingValue.toString() : null,
         syringeId: syringe.id,
         injectionSite: input.injectionSite,
+        route: input.route === "nasal" ? "nasal" : undefined,
         source: "app",
         notes: input.notes ? encryptField(input.notes) : null,
       },
@@ -421,9 +424,10 @@ export async function editDoseLog(input: EditDoseLogInput): Promise<{ ok: boolea
         dose: { value: input.doseValue!, unit: input.doseUnit! },
         preparation: { prepType: prep.prepType as "reconstituted" | "premixed", concentrationMcgPerMl: new Decimal(prep.concentrationMcgPerMl.toString()) },
         syringe: {
-          name: log.syringe.name, graduationType: log.syringe.graduationType as "units" | "ml",
+          name: log.syringe.name, graduationType: log.syringe.graduationType as GraduationType,
           unitsPerMl: log.syringe.unitsPerMl, capacityMl: log.syringe.capacityMl.toString(),
           capacityUnits: log.syringe.capacityUnits, increment: log.syringe.increment.toString(),
+          mlPerSpray: log.syringe.mlPerSpray?.toString() ?? null,
         },
       });
     } catch {

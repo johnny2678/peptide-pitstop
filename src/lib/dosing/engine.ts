@@ -71,6 +71,14 @@ export function canonicaliseDose(args: {
       const volumeMl = value.div(syringe.unitsPerMl);
       return { massMcg: volumeMl.times(conc), volumeMl };
     }
+    case "sprays": {
+      const mlPerSpray = new Decimal(syringe.mlPerSpray ?? 0);
+      if (mlPerSpray.lte(0)) {
+        throw new Error("A sprayer with a positive mL/spray is required for a spray dose");
+      }
+      const volumeMl = value.times(mlPerSpray);
+      return { massMcg: volumeMl.times(conc), volumeMl };
+    }
     default: {
       // Exhaustiveness guard.
       const _never: never = dose.unit;
@@ -118,6 +126,14 @@ export function computeDraw(args: {
     const roundedUnits = roundToIncrement(rawUnits, syringe.increment);
     markingValue = roundedUnits;
     deliveredVolumeMl = roundedUnits.div(syringe.unitsPerMl);
+  } else if (syringe.graduationType === "sprays") {
+    // Marking = whole sprays. Round the target volume to a whole number of
+    // actuations (each = mlPerSpray); the delivered volume follows from that.
+    const mlPerSpray = new Decimal(syringe.mlPerSpray ?? 0);
+    const rawSprays = mlPerSpray.gt(0) ? targetVolumeMl.div(mlPerSpray) : new Decimal(0);
+    const roundedSprays = roundToIncrement(rawSprays, syringe.increment);
+    markingValue = roundedSprays;
+    deliveredVolumeMl = roundedSprays.times(mlPerSpray);
   } else {
     const roundedMl = roundToIncrement(targetVolumeMl, syringe.increment);
     markingValue = roundedMl;

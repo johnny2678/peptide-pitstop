@@ -187,3 +187,52 @@ describe("invariants", () => {
     expect(() => computeConcentrationMcgPerMl({ totalMassMg: 5, bacWaterMl: 0 })).toThrow();
   });
 });
+
+// --- Nasal sprayer: a device graduated in whole sprays --------------------
+describe("nasal sprayer (sprays)", () => {
+  // 0.1 mL per actuation; Semax reconstituted to 2000 mcg/mL → 200 mcg/spray.
+  const sprayer: Syringe = {
+    name: "nasal pump 0.1 mL",
+    graduationType: "sprays",
+    unitsPerMl: 100,
+    capacityMl: 1,
+    capacityUnits: 1,
+    increment: 1,
+    mlPerSpray: "0.1",
+  };
+  const semax: Preparation = { prepType: "reconstituted", concentrationMcgPerMl: new Decimal(2000) };
+
+  it("1 spray delivers 200 mcg / 0.1 mL, marked as 1 spray", () => {
+    const r = computeDraw({ dose: { value: "1", unit: "sprays" }, preparation: semax, syringe: sprayer });
+    expect(r.deliveredMassMcg.toString()).toBe("200");
+    expect(r.deliveredVolumeMl.toString()).toBe("0.1");
+    expect(r.markingScale).toBe("sprays");
+    expect(r.markingValue.toString()).toBe("1");
+  });
+
+  it("2 sprays double the mass and volume", () => {
+    const r = computeDraw({ dose: { value: "2", unit: "sprays" }, preparation: semax, syringe: sprayer });
+    expect(r.deliveredMassMcg.toString()).toBe("400");
+    expect(r.deliveredVolumeMl.toString()).toBe("0.2");
+    expect(r.markingValue.toString()).toBe("2");
+  });
+
+  it("a mcg input rounds to a whole number of sprays", () => {
+    // 250 mcg → 0.125 mL → 1.25 sprays → rounds to 1 spray (0.1 mL / 200 mcg).
+    const r = computeDraw({ dose: { value: "250", unit: "mcg" }, preparation: semax, syringe: sprayer });
+    expect(r.markingValue.toString()).toBe("1");
+    expect(r.deliveredMassMcg.toString()).toBe("200");
+  });
+
+  it("does NOT raise a syringe-capacity block (a pump has no barrel)", () => {
+    const tiny: Syringe = { ...sprayer, capacityMl: "0.1" };
+    const r = computeDraw({ dose: { value: "3", unit: "sprays" }, preparation: semax, syringe: tiny });
+    expect(r.warnings.some((w) => w.code === "EXCEEDS_SYRINGE_CAPACITY")).toBe(false);
+    expect(r.warnings.some((w) => w.code === "FULL_BARREL")).toBe(false);
+  });
+
+  it("still blocks when the dose exceeds what remains in the vial", () => {
+    const r = computeDraw({ dose: { value: "2", unit: "sprays" }, preparation: semax, syringe: sprayer, remainingMl: "0.15" });
+    expect(r.warnings.some((w) => w.code === "EXCEEDS_REMAINING_VIAL" && w.severity === "block")).toBe(true);
+  });
+});

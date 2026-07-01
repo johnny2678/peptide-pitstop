@@ -9,7 +9,7 @@ import Decimal from "decimal.js";
 import { getCurrentUser } from "@/lib/auth/owner";
 import { prisma } from "@/lib/db";
 import { decryptField } from "@/lib/crypto/fieldEncryption";
-import type { DoseUnit } from "@/lib/dosing/types";
+import type { DoseUnit, GraduationType } from "@/lib/dosing/types";
 import { EditDoseForm } from "@/components/EditDoseForm";
 import { OralEditDoseForm } from "@/components/OralEditDoseForm";
 
@@ -121,11 +121,12 @@ export default async function EditDosePage({ params }: { params: { id: string } 
     ? {
         id: log.syringe.id,
         name: log.syringe.name,
-        graduationType: log.syringe.graduationType as "units" | "ml",
+        graduationType: log.syringe.graduationType as GraduationType,
         unitsPerMl: log.syringe.unitsPerMl,
         capacityMl: log.syringe.capacityMl.toString(),
         capacityUnits: log.syringe.capacityUnits,
         increment: log.syringe.increment.toString(),
+        mlPerSpray: log.syringe.mlPerSpray?.toString() ?? null,
       }
     : null;
 

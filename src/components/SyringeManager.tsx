@@ -14,6 +14,7 @@ interface Syringe {
   capacityMl: string;
   capacityUnits: string;
   increment: string;
+  mlPerSpray?: string | null;
 }
 
 const BLANK: SyringeInput = {
@@ -23,6 +24,12 @@ const BLANK: SyringeInput = {
   capacityMl: "1",
   capacityUnits: "100",
   increment: "1",
+};
+
+const BLANK_SPRAYER: SyringeInput = {
+  name: "",
+  graduationType: "sprays",
+  mlPerSpray: "0.1",
 };
 
 const input = "w-full rounded-control border border-line/15 bg-bg px-3 py-2 text-sm text-ink";
@@ -69,7 +76,11 @@ export function SyringeManager({ syringes }: { syringes: Syringe[] }) {
           <li key={s.id} className="flex items-center justify-between rounded-card bg-surface px-4 py-3 text-sm shadow-sm ring-1 ring-line/10">
             <div>
               <p className="font-medium">{s.name}</p>
-              <p className="text-xs text-muted">{s.graduationType} · {s.capacityMl} mL / {s.capacityUnits}u · step {s.increment}</p>
+              <p className="text-xs text-muted">
+                {s.graduationType === "sprays"
+                  ? `nasal sprayer · ${s.mlPerSpray ?? "?"} mL/spray`
+                  : `${s.graduationType} · ${s.capacityMl} mL / ${s.capacityUnits}u · step ${s.increment}`}
+              </p>
             </div>
             <div className="flex gap-3">
               <button type="button" onClick={() => setForm({ ...s })} className="inline-flex items-center gap-1 text-xs font-medium text-accentStrong"><Pencil className="h-3.5 w-3.5" aria-hidden /> Edit</button>
@@ -81,20 +92,34 @@ export function SyringeManager({ syringes }: { syringes: Syringe[] }) {
 
       {form ? (
         <div className="space-y-2 rounded-card bg-surface p-4 shadow-sm ring-1 ring-line/10">
-          <p className="text-sm font-medium">{form.id ? "Edit syringe" : "New syringe"}</p>
-          <input className={input} placeholder="Name (e.g. 1 mL U-100 insulin)" value={form.name} onChange={(e) => set("name", e.target.value)} />
-          <select className={input} value={form.graduationType} onChange={(e) => set("graduationType", e.target.value)} aria-label="Graduation type">
+          <p className="text-sm font-medium">
+            {form.graduationType === "sprays"
+              ? (form.id ? "Edit sprayer" : "New sprayer")
+              : (form.id ? "Edit syringe" : "New syringe")}
+          </p>
+          <input className={input} placeholder={form.graduationType === "sprays" ? "Name (e.g. nasal pump 0.1 mL)" : "Name (e.g. 1 mL U-100 insulin)"} value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <select className={input} value={form.graduationType} onChange={(e) => set("graduationType", e.target.value)} aria-label="Device type">
             <option value="units">unit-graduated (insulin)</option>
             <option value="ml">mL-graduated</option>
+            <option value="sprays">nasal sprayer</option>
           </select>
-          <div className="flex gap-2">
-            <input className={input} inputMode="decimal" placeholder="Units/mL" value={form.unitsPerMl} onChange={(e) => set("unitsPerMl", e.target.value)} />
-            <input className={input} inputMode="decimal" placeholder="Capacity mL" value={form.capacityMl} onChange={(e) => set("capacityMl", e.target.value)} />
-          </div>
-          <div className="flex gap-2">
-            <input className={input} inputMode="decimal" placeholder="Capacity units" value={form.capacityUnits} onChange={(e) => set("capacityUnits", e.target.value)} />
-            <input className={input} inputMode="decimal" placeholder="Smallest mark" value={form.increment} onChange={(e) => set("increment", e.target.value)} />
-          </div>
+          {form.graduationType === "sprays" ? (
+            <>
+              <input className={input} inputMode="decimal" placeholder="Volume per spray (mL), e.g. 0.1" value={form.mlPerSpray ?? ""} onChange={(e) => set("mlPerSpray", e.target.value)} />
+              <p className="text-xs text-muted">Each spray delivers this volume; the mcg per spray follows from the vial&apos;s concentration.</p>
+            </>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <input className={input} inputMode="decimal" placeholder="Units/mL" value={form.unitsPerMl} onChange={(e) => set("unitsPerMl", e.target.value)} />
+                <input className={input} inputMode="decimal" placeholder="Capacity mL" value={form.capacityMl} onChange={(e) => set("capacityMl", e.target.value)} />
+              </div>
+              <div className="flex gap-2">
+                <input className={input} inputMode="decimal" placeholder="Capacity units" value={form.capacityUnits} onChange={(e) => set("capacityUnits", e.target.value)} />
+                <input className={input} inputMode="decimal" placeholder="Smallest mark" value={form.increment} onChange={(e) => set("increment", e.target.value)} />
+              </div>
+            </>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy} className="flex flex-1 items-center justify-center gap-1.5 rounded-control bg-accent px-4 py-2 text-sm font-medium text-onAccent disabled:opacity-40">{busy ? "…" : <><Save className="h-4 w-4" aria-hidden /> Save</>}</button>
@@ -102,7 +127,10 @@ export function SyringeManager({ syringes }: { syringes: Syringe[] }) {
           </div>
         </div>
       ) : (
-        <button type="button" onClick={() => setForm({ ...BLANK })} className="flex w-full items-center justify-center gap-1.5 rounded-control bg-bg px-4 py-2 text-sm font-medium text-accentStrong ring-1 ring-line/15"><Plus className="h-4 w-4" aria-hidden /> Add syringe</button>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setForm({ ...BLANK })} className="flex flex-1 items-center justify-center gap-1.5 rounded-control bg-bg px-4 py-2 text-sm font-medium text-accentStrong ring-1 ring-line/15"><Plus className="h-4 w-4" aria-hidden /> Add syringe</button>
+          <button type="button" onClick={() => setForm({ ...BLANK_SPRAYER })} className="flex flex-1 items-center justify-center gap-1.5 rounded-control bg-bg px-4 py-2 text-sm font-medium text-accentStrong ring-1 ring-line/15"><Plus className="h-4 w-4" aria-hidden /> Add sprayer</button>
+        </div>
       )}
       {error && !form && <p className="text-sm text-danger">{error}</p>}
     </div>

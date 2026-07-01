@@ -6,18 +6,19 @@ import { useMemo, useState } from "react";
 import Decimal from "decimal.js";
 import { computeDraw } from "@/lib/dosing/engine";
 import { reconcileDoseEditRemaining } from "@/lib/dosing/recompute";
-import type { DoseUnit } from "@/lib/dosing/types";
+import type { DoseUnit, GraduationType } from "@/lib/dosing/types";
 import { editDoseLog } from "@/app/actions/doses";
 import { VisualSyringe } from "./VisualSyringe";
 
 interface SyringeDTO {
   id: string;
   name: string;
-  graduationType: "units" | "ml";
+  graduationType: GraduationType;
   unitsPerMl: number;
   capacityMl: string;
   capacityUnits: number;
   increment: string;
+  mlPerSpray?: string | null;
 }
 
 interface Props {
@@ -46,6 +47,8 @@ interface Props {
 }
 
 const UNITS: DoseUnit[] = ["mcg", "mg", "ml", "units"];
+// A nasal dose is edited in sprays (or mass); a syringe dose in the standard four.
+const NASAL_UNITS: DoseUnit[] = ["sprays", "mcg", "mg"];
 
 export function EditDoseForm({ dose, prep, syringe, peptideName }: Props) {
   const [doseValue, setDoseValue] = useState(dose.amount);
@@ -181,7 +184,7 @@ export function EditDoseForm({ dose, prep, syringe, peptideName }: Props) {
           className="rounded-control border border-line/15 bg-bg px-3 py-2"
           aria-label="Dose unit"
         >
-          {UNITS.map((u) => (
+          {(syringe?.graduationType === "sprays" ? NASAL_UNITS : UNITS).map((u) => (
             <option key={u} value={u}>{u}</option>
           ))}
         </select>

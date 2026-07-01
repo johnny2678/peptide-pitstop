@@ -20,9 +20,12 @@ export function evaluateGuardrails(args: {
 }): DosingWarning[] {
   const warnings: DosingWarning[] = [];
   const capacityMl = new Decimal(args.syringe.capacityMl);
+  // A sprayer has no fixed barrel — the "capacity" and "full barrel" checks are
+  // syringe-only. Depletion is still bounded by the vial (check 2, below).
+  const isSyringe = args.syringe.graduationType !== "sprays";
 
   // 1. Does the dose physically fit the syringe? (hard block)
-  if (args.targetVolumeMl.gt(capacityMl)) {
+  if (isSyringe && args.targetVolumeMl.gt(capacityMl)) {
     warnings.push({
       code: "EXCEEDS_SYRINGE_CAPACITY",
       severity: "block",
@@ -53,7 +56,7 @@ export function evaluateGuardrails(args: {
   }
 
   // 4. Whole-barrel draw — works but no headroom. (warn)
-  if (args.targetVolumeMl.equals(capacityMl)) {
+  if (isSyringe && args.targetVolumeMl.equals(capacityMl)) {
     warnings.push({
       code: "FULL_BARREL",
       severity: "warn",

@@ -12,11 +12,12 @@ function posNum(v?: string | null): number | null {
 export interface SyringeInput {
   id?: string;
   name: string;
-  graduationType?: string; // units | ml
+  graduationType?: string; // units | ml | sprays
   unitsPerMl?: string;
   capacityMl?: string;
   capacityUnits?: string;
   increment?: string;
+  mlPerSpray?: string | null; // volume per actuation (mL) — sprays devices only
 }
 
 export async function saveSyringe(input: SyringeInput) {
@@ -25,22 +26,44 @@ export async function saveSyringe(input: SyringeInput) {
   const name = input.name.trim();
   if (!name) return { ok: false as const, error: "Name is required." };
 
-  const unitsPerMl = posNum(input.unitsPerMl) ?? 100;
-  const capacityMl = posNum(input.capacityMl);
-  const capacityUnits = posNum(input.capacityUnits);
-  const increment = posNum(input.increment);
-  if (!capacityMl) return { ok: false as const, error: "Capacity (mL) must be positive." };
-  if (!capacityUnits) return { ok: false as const, error: "Capacity (units) must be positive." };
-  if (!increment) return { ok: false as const, error: "Increment must be positive." };
-
-  const data = {
-    name,
-    graduationType: input.graduationType === "ml" ? "ml" : "units",
-    unitsPerMl: Math.round(unitsPerMl),
-    capacityMl: capacityMl.toString(),
-    capacityUnits: Math.round(capacityUnits),
-    increment: increment.toString(),
+  // Nasal sprayer: a device graduated in whole sprays. Its only calibration is
+  // volume per actuation (mL); the syringe-barrel fields are irrelevant, so we
+  // fill inert defaults (guardrails skip barrel checks for sprays).
+  let data: {
+    name: string; graduationType: string; unitsPerMl: number;
+    capacityMl: string; capacityUnits: number; increment: string; mlPerSpray: string | null;
   };
+  if (input.graduationType === "sprays") {
+    const mlPerSpray = posNum(input.mlPerSpray);
+    if (!mlPerSpray) return { ok: false as const, error: "Volume per spray (mL) must be positive." };
+    data = {
+      name,
+      graduationType: "sprays",
+      unitsPerMl: 100,
+      capacityMl: "1",
+      capacityUnits: 1,
+      increment: "1", // whole sprays
+      mlPerSpray: mlPerSpray.toString(),
+    };
+  } else {
+    const unitsPerMl = posNum(input.unitsPerMl) ?? 100;
+    const capacityMl = posNum(input.capacityMl);
+    const capacityUnits = posNum(input.capacityUnits);
+    const increment = posNum(input.increment);
+    if (!capacityMl) return { ok: false as const, error: "Capacity (mL) must be positive." };
+    if (!capacityUnits) return { ok: false as const, error: "Capacity (units) must be positive." };
+    if (!increment) return { ok: false as const, error: "Increment must be positive." };
+
+    data = {
+      name,
+      graduationType: input.graduationType === "ml" ? "ml" : "units",
+      unitsPerMl: Math.round(unitsPerMl),
+      capacityMl: capacityMl.toString(),
+      capacityUnits: Math.round(capacityUnits),
+      increment: increment.toString(),
+      mlPerSpray: null,
+    };
+  }
 
   try {
     if (input.id) {

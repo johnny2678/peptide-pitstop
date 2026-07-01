@@ -11,15 +11,20 @@
  */
 import Decimal from "decimal.js";
 
-/** Unit a dose may be *entered* in. Distinct from a peptide's substance class. */
-export type DoseUnit = "mcg" | "mg" | "ml" | "units";
+/**
+ * Unit a dose may be *entered* in. Distinct from a peptide's substance class.
+ * `sprays` is nasal-only: a spray count converts to volume via the sprayer's
+ * mL/spray, then to mass via the vial concentration (see canonicaliseDose).
+ */
+export type DoseUnit = "mcg" | "mg" | "ml" | "units" | "sprays";
 
 /** How a peptide's strength is defined. IU substances never convert to/from mass. */
 export type SubstanceClass = "mass" | "IU";
 
-/** How a syringe barrel is graduated. */
-export type GraduationType = "units" | "ml";
+/** How a delivery device is graduated. `sprays` = a nasal sprayer/dropper. */
+export type GraduationType = "units" | "ml" | "sprays";
 
+/** A delivery device: a syringe/needle, or (graduationType "sprays") a nasal sprayer. */
 export interface Syringe {
   name: string;
   graduationType: GraduationType;
@@ -29,8 +34,14 @@ export interface Syringe {
   capacityMl: Decimal.Value;
   /** Total barrel capacity in units (e.g. 30 / 50 / 100). */
   capacityUnits: number;
-  /** Smallest measurable mark, in the barrel's native scale (units or mL). */
+  /** Smallest measurable mark, in the device's native scale (units / mL / sprays). */
   increment: Decimal.Value;
+  /**
+   * Volume delivered per actuation, in mL. ONLY meaningful (and required) for a
+   * sprays-graduated device — the fixed mechanical property of the pump. mcg per
+   * spray is derived at dose time from this × the vial concentration.
+   */
+  mlPerSpray?: Decimal.Value | null;
 }
 
 /** A vial's prepared state — the source of concentration for every dose. */

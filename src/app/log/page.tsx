@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/lib/auth/owner";
 import { suggestNextSite } from "@/lib/sites";
 import { AdHocLogForm } from "@/components/AdHocLogForm";
 import { OralLogForm } from "@/components/OralLogForm";
+import { NasalLogForm } from "@/components/NasalLogForm";
+import type { GraduationType } from "@/lib/dosing/types";
 import { BackButton } from "@/components/BackButton";
 import { buildProtocolDoseOptions, type ProtocolForOptions } from "@/lib/log/protocol-options";
 import { plannedDayWindow } from "@/lib/planned/match";
@@ -20,6 +22,11 @@ export default async function LogPage() {
     include: { vial: { include: { peptide: true } } },
     orderBy: { reconstitutedAt: "desc" },
   });
+
+  // Nasal peptides reconstitute like injections (so they have preparations), but
+  // are logged via a sprayer in sprays — split them out from the injection preps.
+  const injectionPreps = preps.filter((p) => p.vial.peptide.route !== "nasal");
+  const nasalPreps = preps.filter((p) => p.vial.peptide.route === "nasal");
 
   // Collect unique peptideIds from preps.
   const peptideIds = [...new Set(preps.map((p) => p.vial.peptideId))];
@@ -40,7 +47,7 @@ export default async function LogPage() {
   }
   const now = new Date();
 
-  const options = preps.map((p) => {
+  const options = injectionPreps.map((p) => {
     const lastAt = lastLogByPeptide.get(p.vial.peptideId);
     const hoursSinceLast = lastAt ? (now.getTime() - lastAt.getTime()) / 3_600_000 : null;
     return {
@@ -114,7 +121,9 @@ export default async function LogPage() {
   }));
   const protocolOptions = buildProtocolDoseOptions(protocolForOptions, now);
 
-  const syringes = (await prisma.syringe.findMany({ where: { OR: [{ userId: user.id }, { userId: null }] } })).map((s) => ({
+  const devices = await prisma.syringe.findMany({ where: { OR: [{ userId: user.id }, { userId: null }] } });
+  // Syringes (injection) vs sprayers (nasal) are the same table, split by graduation.
+  const syringes = devices.filter((s) => s.graduationType !== "sprays").map((s) => ({
     id: s.id,
     name: s.name,
     graduationType: s.graduationType as "units" | "ml",
@@ -123,6 +132,31 @@ export default async function LogPage() {
     capacityUnits: s.capacityUnits,
     increment: s.increment.toString(),
   }));
+  const sprayers = devices.filter((s) => s.graduationType === "sprays").map((s) => ({
+    id: s.id,
+    name: s.name,
+    graduationType: s.graduationType as GraduationType,
+    unitsPerMl: s.unitsPerMl,
+    capacityMl: s.capacityMl.toString(),
+    capacityUnits: s.capacityUnits,
+    increment: s.increment.toString(),
+    mlPerSpray: s.mlPerSpray?.toString() ?? null,
+  }));
+
+  // Single active protocol per peptide (for nasal attribution + spray prefill).
+  const activeProtoByPeptide = new Map<string, (typeof protocols)[number]>();
+  for (const p of protocols) if (!activeProtoByPeptide.has(p.peptideId)) activeProtoByPeptide.set(p.peptideId, p);
+
+  const nasalOptions = nasalPreps.map((p) => {
+    const proto = activeProtoByPeptide.get(p.vial.peptideId);
+    return {
+      peptideId: p.vial.peptideId,
+      peptideName: p.vial.peptide.name,
+      preparation: { id: p.id, concentrationMcgPerMl: p.concentrationMcgPerMl.toString(), remainingMl: p.remainingMl.toString() },
+      protocolId: proto?.id,
+      initialSprays: proto?.doseInputUnit === "sprays" && proto.targetDose != null ? proto.targetDose.toString() : "1",
+    };
+  });
 
   // Oral peptides are loggable without any vial/prep — they don't appear in the
   // injection `options` (which come from preparations). Surface them separately
@@ -219,6 +253,33 @@ export default async function LogPage() {
         </section>
       )}
       </div>
+
+      {nasalOptions.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-sm font-medium text-muted">Nasal sprays</h2>
+          <ul className="space-y-3">
+            {nasalOptions.map((o) => (
+              <li key={o.peptideId} className="rounded-card bg-surface shadow-sm ring-1 ring-line/10">
+                <details>
+                  <summary className="flex cursor-pointer items-center justify-between p-4">
+                    <span className="uppercase tracking-[0.06em] font-medium">{o.peptideName}</span>
+                    <span className="rounded-control bg-accent/10 px-2.5 py-1 text-xs font-medium uppercase tracking-[0.08em] text-accent ring-1 ring-accent/40">Log</span>
+                  </summary>
+                  <div className="border-t border-line/10 p-4">
+                    <NasalLogForm
+                      protocolId={o.protocolId}
+                      peptideName={o.peptideName}
+                      preparation={o.preparation}
+                      sprayers={sprayers}
+                      initialSprays={o.initialSprays}
+                    />
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
   );
 }

@@ -97,7 +97,7 @@ export async function saveProtocol(input: ProtocolInput) {
     adherenceWindowMin: optInt(input.adherenceWindowMin) ?? 120,
     defaultSyringeId: input.defaultSyringeId || null,
     targetDose,
-    doseInputUnit: ["mcg", "mg", "ml", "units"].includes(input.doseInputUnit ?? "") ? input.doseInputUnit! : "mcg",
+    doseInputUnit: ["mcg", "mg", "ml", "units", "sprays"].includes(input.doseInputUnit ?? "") ? input.doseInputUnit! : "mcg",
     doseBasis: input.doseBasis === "per_week" ? "per_week" : "per_injection",
     startDate: input.startDate ? new Date(input.startDate) : null,
     endDate: input.endDate ? new Date(input.endDate) : null,
@@ -138,7 +138,7 @@ export async function addProtocolStep(input: { protocolId: string; dose: string;
         protocolId: input.protocolId,
         stepIndex: count,
         dose,
-        doseInputUnit: ["mcg", "mg", "ml", "units"].includes(input.doseInputUnit) ? input.doseInputUnit : "mcg",
+        doseInputUnit: ["mcg", "mg", "ml", "units", "sprays"].includes(input.doseInputUnit) ? input.doseInputUnit : "mcg",
         durationDays: optInt(input.durationDays),
         notes: input.notes?.trim() || null,
       },
@@ -171,7 +171,7 @@ export async function addProtocolSteps(input: {
     if (!dose) return null;
     return {
       dose,
-      doseInputUnit: ["mcg", "mg", "ml", "units"].includes(s.doseInputUnit) ? s.doseInputUnit : "mcg",
+      doseInputUnit: ["mcg", "mg", "ml", "units", "sprays"].includes(s.doseInputUnit) ? s.doseInputUnit : "mcg",
       durationDays: optInt(s.durationDays),
       notes: s.notes?.trim() || null,
       _i: i,
@@ -340,7 +340,7 @@ export async function updateProtocolStep(input: {
       where: { id: input.stepId },
       data: {
         dose,
-        doseInputUnit: ["mcg", "mg", "ml", "units"].includes(input.doseInputUnit)
+        doseInputUnit: ["mcg", "mg", "ml", "units", "sprays"].includes(input.doseInputUnit)
           ? input.doseInputUnit
           : "mcg",
         durationDays: optInt(input.durationDays),

@@ -202,7 +202,7 @@ export function ProtocolForm({
           </label>
           <label className="block w-28 text-sm text-muted">Unit
             <select className={input + " mt-1"} value={form.doseInputUnit} onChange={(e) => set("doseInputUnit", e.target.value)}>
-              {["mcg", "mg", "ml", "units"].map((u) => <option key={u} value={u}>{u}</option>)}
+              {["mcg", "mg", "ml", "units", "sprays"].map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
           </label>
         </div>

@@ -140,7 +140,7 @@ export function PeptideManager({ peptides, library = [] }: { peptides: Peptide[]
               <div>
                 <p className="font-medium">{p.name}</p>
                 <p className="text-xs text-muted">
-                  {p.route === "oral" ? "Oral" : "Injection"}
+                  {p.route === "oral" ? "Oral" : p.route === "nasal" ? "Nasal spray" : "Injection"}
                   {` · ${p.substanceClass}`}
                   {p.halfLifeHours && ` · t½ ${p.halfLifeHours}h`}
                   {p.defaultStrengthMg && ` · ${p.defaultStrengthMg} mg`}
@@ -180,6 +180,7 @@ export function PeptideManager({ peptides, library = [] }: { peptides: Peptide[]
             <select className={input} value={form.route ?? "injection"} onChange={(e) => set("route", e.target.value)} aria-label="Route">
               <option value="injection">Injection</option>
               <option value="oral">Oral</option>
+              <option value="nasal">Nasal spray</option>
             </select>
             <select className={input} value={form.substanceClass} onChange={(e) => set("substanceClass", e.target.value)} aria-label="Substance class">
               <option value="mass">mass</option>

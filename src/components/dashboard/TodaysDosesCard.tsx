@@ -118,6 +118,7 @@ export function TodaysDosesCard({
                     <p className="text-sm text-ink tabular-nums">
                       {d.doseValue} {d.doseUnit}
                       {d.route === "oral" && " · oral"}
+                      {d.route === "nasal" && " · nasal"}
                       {d.route !== "oral" && d.preparation == null && " · needs reconstitution"}
                     </p>
                     {d.phaseProgress && (
@@ -152,6 +153,10 @@ export function TodaysDosesCard({
                       initialDoseValue={d.doseValue}
                       initialDoseUnit={d.doseUnit}
                     />
+                  ) : d.route === "nasal" && d.preparation ? (
+                    <p className="text-sm text-muted">
+                      <Link href="/log" className="font-medium text-accentStrong">Log this nasal dose on the Log page →</Link>
+                    </p>
                   ) : d.preparation && syringes.length > 0 ? (
                     <LogDoseForm
                       protocolId={d.protocolId}

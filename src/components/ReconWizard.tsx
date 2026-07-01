@@ -5,18 +5,19 @@ import { ChevronLeft, ArrowRight, FlaskConical } from "lucide-react";
 import { useMemo, useState } from "react";
 import Decimal from "decimal.js";
 import { computeConcentrationMcgPerMl, computeDraw } from "@/lib/dosing/engine";
-import type { DoseUnit } from "@/lib/dosing/types";
+import type { DoseUnit, GraduationType } from "@/lib/dosing/types";
 import { createPreparation } from "@/app/actions/reconstitution";
 import { VisualSyringe } from "./VisualSyringe";
 
 interface SyringeDTO {
   id: string;
   name: string;
-  graduationType: "units" | "ml";
+  graduationType: GraduationType;
   unitsPerMl: number;
   capacityMl: string;
   capacityUnits: number;
   increment: string;
+  mlPerSpray?: string | null;
 }
 
 interface Props {

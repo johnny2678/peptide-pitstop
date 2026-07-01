@@ -78,7 +78,7 @@ export default async function TodayPage({
       where: { OR: [{ userId: user.id }, { userId: null }] },
       orderBy: { name: "asc" },
     })
-  ).map((s) => ({
+  ).filter((s) => s.graduationType !== "sprays").map((s) => ({
     id: s.id,
     name: s.name,
     graduationType: s.graduationType as "units" | "ml",
