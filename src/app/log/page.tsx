@@ -98,7 +98,9 @@ export default async function LogPage() {
   const activePrepByPeptide = new Map<string, string>();
   for (const p of preps) if (!activePrepByPeptide.has(p.vial.peptideId)) activePrepByPeptide.set(p.vial.peptideId, p.id);
 
-  const protocolForOptions: ProtocolForOptions[] = protocols.map((p) => ({
+  // Nasal protocols log via the Nasal sprays section (a sprayer, not a syringe),
+  // so keep them out of the injection ad-hoc form's protocol picker.
+  const protocolForOptions: ProtocolForOptions[] = protocols.filter((p) => p.peptide.route !== "nasal").map((p) => ({
     id: p.id,
     peptideId: p.peptideId,
     peptideName: p.peptide.name,
