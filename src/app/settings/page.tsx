@@ -114,6 +114,9 @@ export default async function SettingsPage() {
     increment: s.increment.toString(),
     mlPerSpray: s.mlPerSpray?.toString() ?? null,
   }));
+  // Injection syringes vs nasal sprayers get their own settings sections.
+  const injectionSyringes = syringes.filter((s) => s.graduationType !== "sprays");
+  const nasalSprayers = syringes.filter((s) => s.graduationType === "sprays");
 
   return (
     <main className={PAGE_MAIN}>
@@ -151,12 +154,19 @@ export default async function SettingsPage() {
             </div>
           </section>
 
-          {/* Syringes — moved into the left column at desktop to balance heights.
-              Sits below Peptides on mobile (unchanged order). The desktop-only
-              mb-0 drops the trailing gap so the left column doesn't over-pad. */}
-          <section className="mb-8 min-[1440px]:mb-0">
+          {/* Syringes + nasal sprayers — split into two sections so injection gear
+              and nasal devices don't share one list. Both live in the left column
+              at desktop to balance heights; they sit below Peptides on mobile
+              (unchanged order). The desktop-only mb-0 on the last one drops the
+              trailing gap so the left column doesn't over-pad. */}
+          <section className="mb-8">
             <h2 className="mb-3 text-sm font-medium text-muted">Syringes</h2>
-            <SyringeManager syringes={syringes} />
+            <SyringeManager syringes={injectionSyringes} kind="syringe" />
+          </section>
+
+          <section className="mb-8 min-[1440px]:mb-0">
+            <h2 className="mb-3 text-sm font-medium text-muted">Nasal sprayers</h2>
+            <SyringeManager syringes={nasalSprayers} kind="sprayer" />
           </section>
         </div>
 
