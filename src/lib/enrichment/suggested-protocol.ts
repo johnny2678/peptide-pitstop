@@ -119,3 +119,16 @@ export function effectiveTemplates(entry: EnrichmentEntry): EnrichmentTemplate[]
   const synth = synthesizedTemplate(entry);
   return synth ? [synth] : [];
 }
+
+/**
+ * Display form of a template's `frequency`. The curated strings bake in an
+ * administration route, e.g. "Once daily (subcutaneous)". Route is now a
+ * first-class peptide field, so strip the trailing route parenthetical from the
+ * hint — otherwise a nasal/oral peptide still reads "(subcutaneous)". Returns
+ * null when nothing meaningful remains.
+ */
+export function displayFrequency(frequency?: string | null): string | null {
+  if (!frequency) return null;
+  const stripped = frequency.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return stripped || null;
+}

@@ -8,7 +8,7 @@ import { savePeptide, addPeptideFromLibrary, deletePeptide, type PeptideInput } 
 import { ConfirmDeleteButton } from "@/components/ConfirmDeleteButton";
 import type { LibraryPeptide } from "@/lib/peptide-library";
 import type { EnrichmentEntry } from "@/lib/peptide-enrichment";
-import { effectiveTemplates } from "@/lib/enrichment/suggested-protocol";
+import { effectiveTemplates, displayFrequency } from "@/lib/enrichment/suggested-protocol";
 import { PeptideLibraryDetail } from "./PeptideLibraryDetail";
 
 interface Peptide extends Required<Omit<PeptideInput, "id">> {
@@ -51,7 +51,8 @@ function suggestedDosingLine(enrichment: EnrichmentEntry | null | undefined): st
   const t = effectiveTemplates(enrichment)[0];
   if (t && t.targetDose != null) {
     const dose = `${t.targetDose} ${t.unit}`;
-    return t.frequency ? `Suggested: ${dose} · ${t.frequency}` : `Suggested: ${dose}`;
+    const freq = displayFrequency(t.frequency);
+    return freq ? `Suggested: ${dose} · ${freq}` : `Suggested: ${dose}`;
   }
   const ref = enrichment.dosingReference?.trim();
   if (!ref) return null;

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Calculator, ExternalLink, ArrowRight } from "lucide-react";
 import type { EnrichmentEntry, EnrichmentTemplate } from "@/lib/peptide-enrichment";
-import { effectiveTemplates } from "@/lib/enrichment/suggested-protocol";
+import { effectiveTemplates, displayFrequency } from "@/lib/enrichment/suggested-protocol";
 import { EnrichmentCalculator } from "./EnrichmentCalculator";
 
 /** Map a template's display unit (mcg|mg|iu) to a calculator DoseUnit. */
@@ -196,7 +196,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function summariseTemplate(t: EnrichmentTemplate): string {
   const basis = t.doseBasis === "per_week" ? "per week" : "per injection";
   const dose = t.targetDose != null ? `${t.targetDose} ${t.unit} ${basis}` : "dose varies";
-  return t.frequency ? `${dose} · ${t.frequency}` : dose;
+  const freq = displayFrequency(t.frequency);
+  return freq ? `${dose} · ${freq}` : dose;
 }
 
 /** First template's headline dose, to prefill the calculator's target. */
