@@ -95,6 +95,32 @@ export function projectedSealedDoses(args: {
   }
 }
 
+export interface VialGroup {
+  /** Representative vial — drives the card's display, prep wizard, and actions. */
+  rep: VialView;
+  /** How many physical vials share this stack's identity (the badge count). */
+  count: number;
+  /** Every vial id in the stack, rep first. */
+  ids: string[];
+}
+
+/**
+ * Collapse fungible vials into stacks. `keyOf` defines identity — vials with the
+ * same key share one card and a ×N badge. The first member of each distinct key
+ * becomes the representative, and insertion order is preserved, so callers
+ * control stack ordering by pre-sorting `vials`.
+ */
+export function groupVials(vials: VialView[], keyOf: (v: VialView) => string): VialGroup[] {
+  const stacks = new Map<string, VialView[]>();
+  for (const v of vials) {
+    const k = keyOf(v);
+    const arr = stacks.get(k);
+    if (arr) arr.push(v);
+    else stacks.set(k, [v]);
+  }
+  return [...stacks.values()].map((vs) => ({ rep: vs[0], count: vs.length, ids: vs.map((v) => v.id) }));
+}
+
 export async function getInventory(userId: string, now = new Date()): Promise<VialView[]> {
   const vials = await prisma.vial.findMany({
     where: { userId },

@@ -4,7 +4,7 @@
  * wizard inline. Server component; the wizard inside is a client component.
  */
 import { getCurrentUser } from "@/lib/auth/owner";
-import { getInventory, projectedSealedDoses, type VialView } from "@/lib/inventory";
+import { getInventory, groupVials, projectedSealedDoses, type VialView } from "@/lib/inventory";
 import { getReorderStatus } from "@/lib/reorder";
 import { prisma } from "@/lib/db";
 import { ReconWizard } from "@/components/ReconWizard";
@@ -16,6 +16,26 @@ import Link from "next/link";
 import { PAGE_MAIN } from "@/lib/layout";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Section header count. When vials collapse into fewer stacks, lead with the
+ * stack ("type") count so the header reflects what's actually shown; otherwise
+ * just the plain vial count.
+ */
+function stackCountLabel(stacks: number, vials: number): string {
+  const v = `${vials} vial${vials !== 1 ? "s" : ""}`;
+  return stacks < vials ? `${stacks} type${stacks !== 1 ? "s" : ""} · ${v}` : v;
+}
+
+/** ×N badge for a collapsed stack of identical vials. Hidden for lone vials. */
+function StackBadge({ count }: { count: number }) {
+  if (count < 2) return null;
+  return (
+    <span className="shrink-0 rounded-full bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-accentStrong ring-1 ring-accent/30">
+      ×{count}
+    </span>
+  );
+}
 
 function PreparedVial({ v, pit }: { v: VialView; pit?: boolean }) {
   const low = v.daysLeft != null && v.daysLeft <= 7;
@@ -103,6 +123,24 @@ export default async function InventoryPage() {
   const inUse = active.filter((v) => v.prepared);
   const needsPrep = active.filter((v) => !v.prepared);
   const archived = vials.filter((v) => v.status === "finished" || v.status === "discarded");
+
+  // Collapse fungible unprepared vials into stacks. Identity = peptide + label
+  // strength + lot + expiry, so no lot or use-by date is ever hidden inside a
+  // group. Sort first (peptide, then soonest expiry, then strength) so the
+  // stacks read in a sensible, FIFO-friendly order — the rep of each stack is
+  // the vial the recon wizard prepares.
+  const needsPrepGroups = groupVials(
+    [...needsPrep].sort(
+      (a, b) =>
+        a.peptideName.localeCompare(b.peptideName) ||
+        (a.expiry ?? "9999-12-31").localeCompare(b.expiry ?? "9999-12-31") ||
+        Number(a.labelStrengthMg) - Number(b.labelStrengthMg),
+    ),
+    (v) => `${v.peptideId}|${v.labelStrengthMg}|${v.lot ?? ""}|${v.expiry ?? ""}`,
+  );
+  // Finished/discarded rows show neither lot nor expiry, so collapse purely on
+  // peptide + strength + status (keeps finished and discarded distinct).
+  const archivedGroups = groupVials(archived, (v) => `${v.peptideId}|${v.labelStrengthMg}|${v.status}`);
 
   return (
     <main className={PAGE_MAIN}>
@@ -234,17 +272,20 @@ export default async function InventoryPage() {
           <div className="mb-3 flex items-center gap-2">
             <span className="uppercase tracking-[0.2em] text-[10px] text-muted">Needs preparation</span>
             <span className="h-px flex-1 bg-line/15" />
-            <span className="font-mono tabular-nums text-[10px] text-muted">{needsPrep.length} vial{needsPrep.length !== 1 ? "s" : ""}</span>
+            <span className="font-mono tabular-nums text-[10px] text-muted">{stackCountLabel(needsPrepGroups.length, needsPrep.length)}</span>
           </div>
           <ul className="grid gap-3 lg:grid-cols-2 lg:items-start min-[1900px]:grid-cols-3">
-            {needsPrep.map((v) => (
+            {needsPrepGroups.map((g) => { const v = g.rep; return (
               <li key={v.id} className="min-w-0 rounded-card bg-surface shadow-sm ring-1 ring-line/10">
                 <details>
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
                     <div className="flex min-w-0 items-center gap-3">
                       <VialGlyph state="sealed" fill={0} />
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{v.peptideName}</p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="min-w-0 truncate font-medium">{v.peptideName}</p>
+                          <StackBadge count={g.count} />
+                        </div>
                         <p className="text-sm text-muted tabular-nums">
                           {Number(v.labelStrengthMg)} mg vial · needs preparation
                           {v.expiry && (
@@ -291,7 +332,7 @@ export default async function InventoryPage() {
                   </div>
                 </details>
               </li>
-            ))}
+            ); })}
           </ul>
         </section>
       )}
@@ -301,18 +342,19 @@ export default async function InventoryPage() {
           <div className="mb-3 flex items-center gap-2">
             <span className="uppercase tracking-[0.2em] text-[10px] text-muted">Finished</span>
             <span className="h-px flex-1 bg-line/15" />
-            <span className="font-mono tabular-nums text-[10px] text-muted">{archived.length} vial{archived.length !== 1 ? "s" : ""}</span>
+            <span className="font-mono tabular-nums text-[10px] text-muted">{stackCountLabel(archivedGroups.length, archived.length)}</span>
           </div>
           <ul className="space-y-2">
-            {archived.map((v) => (
+            {archivedGroups.map((g) => { const v = g.rep; return (
               <li key={v.id} className="flex items-center justify-between rounded-control bg-surface px-4 py-3 text-sm ring-1 ring-line/10">
                 <span className="flex min-w-0 items-center gap-2 text-muted">
                   <VialGlyph state="finished" fill={0} className="!h-8 !w-auto" />
                   <span className="truncate">{v.peptideName} · {Number(v.labelStrengthMg)} mg</span>
+                  <StackBadge count={g.count} />
                 </span>
                 <VialStatusChip state="finished" />
               </li>
-            ))}
+            ); })}
           </ul>
         </section>
       )}
