@@ -20,6 +20,7 @@ import { LogDoseForm } from "@/components/LogDoseForm";
 import { OralLogForm } from "@/components/OralLogForm";
 import { ReconWizard } from "@/components/ReconWizard";
 import { DeleteLogButton } from "@/components/DeleteLogButton";
+import { SkipDoseButton } from "@/components/SkipDoseButton";
 import { formatLoggedDoseDisplay } from "@/lib/dosing/oral";
 import type { DueDose, LoggedDose } from "@/lib/today";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
@@ -183,6 +184,11 @@ export function TodaysDosesCard({
                     />
                   ) : (
                     <p className="text-sm text-muted">No vial on hand — add one in Inventory.</p>
+                  )}
+                  {!d.alreadyLoggedToday && (
+                    <div className="mt-3 border-t border-line/10 pt-3">
+                      <SkipDoseButton protocolId={d.protocolId} dateKey={viewKey} label={`${d.peptideName} dose`} />
+                    </div>
                   )}
                 </div>
               </details>

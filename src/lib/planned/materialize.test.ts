@@ -530,3 +530,143 @@ describe("protocol with no scheduleRule", () => {
     expect(statusUpdates).toHaveLength(0);
   });
 });
+
+// ─── suite: missed-dose policy (rollover / rollover_shift) ──────────────────
+//
+// Fixture week: 2026-06-15 = Monday, 06-18 = Thursday, 06-19 = Friday (today).
+// Canonical case: Mon/Thu protocol, Thursday missed, pass runs Friday.
+
+const WEEKLY_MON_THU = JSON.stringify([
+  { dayPattern: { kind: "weekly", byDays: ["MO", "TH"] }, times: [] },
+]);
+
+describe("missed-dose policy", () => {
+  const today = d("2026-06-19"); // Friday
+  const horizonEnd = new Date(today.getTime() + 13 * 86_400_000);
+  const missedThu = () => existing({ id: "pd-thu", scheduledAt: d("2026-06-18") });
+
+  function run(
+    policy: string,
+    rows: PlannedDoseInput[],
+    protocolOverrides: Partial<ProtocolInput> = {},
+  ) {
+    return materializePlannedDoses({
+      protocols: [
+        proto({ scheduleRule: WEEKLY_MON_THU, missedDosePolicy: policy, ...protocolOverrides }),
+      ],
+      horizonStart: today,
+      horizonEnd,
+      existing: rows,
+      today,
+    });
+  }
+
+  it("policy none (default): marks missed, no make-up, no shift", () => {
+    const res = run("none", [missedThu()]);
+    expect(res.statusUpdates).toEqual([{ id: "pd-thu", status: "missed" }]);
+    expect(res.rollovers).toEqual([]);
+    expect(res.scheduleShifts).toEqual([]);
+  });
+
+  it("rollover: make-up row the day after the miss, grid untouched", () => {
+    const res = run("rollover", [missedThu()]);
+    expect(res.statusUpdates).toEqual([{ id: "pd-thu", status: "missed" }]);
+    expect(res.rollovers).toHaveLength(1);
+    expect(KEY(res.rollovers[0].scheduledAt)).toBe("2026-06-19");
+    expect(res.rollovers[0].rolledFromId).toBe("pd-thu");
+    expect(res.scheduleShifts).toEqual([]);
+    // Grid untouched: next Monday still expands.
+    expect(res.upserts.map((u) => KEY(u.scheduledAt))).toContain("2026-06-22");
+  });
+
+  it("rollover_shift: make-up + Mon/Thu becomes Tue/Fri", () => {
+    const res = run("rollover_shift", [missedThu()]);
+    expect(res.rollovers).toHaveLength(1);
+    expect(KEY(res.rollovers[0].scheduledAt)).toBe("2026-06-19");
+    expect(res.scheduleShifts).toHaveLength(1);
+    const rule = JSON.parse(res.scheduleShifts[0].newScheduleRule!);
+    expect(rule[0].dayPattern.byDays).toEqual(["TU", "FR"]);
+    expect(res.scheduleShifts[0].startDateDeltaDays).toBe(0);
+  });
+
+  it("clamps the make-up to today after an outage and shifts by the full slip", () => {
+    // Monday 06-15 missed; pass first runs Friday 06-19 → make-up today, delta 4.
+    const missedMon = existing({ id: "pd-mon", scheduledAt: d("2026-06-15") });
+    const res = run("rollover_shift", [missedMon]);
+    expect(KEY(res.rollovers[0].scheduledAt)).toBe("2026-06-19");
+    const rule = JSON.parse(res.scheduleShifts[0].newScheduleRule!);
+    expect(rule[0].dayPattern.byDays).toEqual(["FR", "MO"]); // MO+4, TH+4
+  });
+
+  it("rolls only the most recent miss per protocol", () => {
+    const res = run("rollover", [
+      missedThu(),
+      existing({ id: "pd-mon", scheduledAt: d("2026-06-15") }),
+    ]);
+    expect(res.statusUpdates).toHaveLength(2);
+    expect(res.rollovers).toHaveLength(1);
+    expect(res.rollovers[0].rolledFromId).toBe("pd-thu");
+  });
+
+  it("does not chain: a missed make-up row spawns no new make-up", () => {
+    // An (off-grid) make-up on Wednesday that itself got missed.
+    const makeup = existing({
+      id: "pd-mk",
+      scheduledAt: d("2026-06-17"),
+      rolledFromId: "pd-orig",
+    });
+    const res = run("rollover", [makeup]);
+    expect(res.statusUpdates).toEqual([{ id: "pd-mk", status: "missed" }]);
+    expect(res.rollovers).toEqual([]);
+  });
+
+  it("skips the make-up when the next day already has a dose row", () => {
+    const friTaken = existing({
+      id: "pd-fri",
+      scheduledAt: d("2026-06-19"),
+      status: "taken",
+      hasDoseLog: true,
+    });
+    const res = run("rollover", [missedThu(), friTaken]);
+    expect(res.rollovers).toEqual([]);
+  });
+
+  it("skips the make-up when the next day is already on the grid", () => {
+    const monThuFri = JSON.stringify([
+      { dayPattern: { kind: "weekly", byDays: ["MO", "TH", "FR"] }, times: [] },
+    ]);
+    const res = run("rollover", [missedThu()], { scheduleRule: monThuFri });
+    expect(res.rollovers).toEqual([]);
+  });
+
+  it("interval schedule: shift moves the anchor, not the rule", () => {
+    const every3 = JSON.stringify([
+      { dayPattern: { kind: "interval", everyDays: 3 }, times: [] },
+    ]);
+    const res = run("rollover_shift", [missedThu()], {
+      scheduleRule: every3,
+      startDate: d("2026-06-15"),
+    });
+    expect(res.rollovers).toHaveLength(1);
+    expect(res.scheduleShifts).toEqual([
+      { protocolId: "proto-1", newScheduleRule: null, startDateDeltaDays: 1 },
+    ]);
+  });
+
+  it("no rollover for paused protocols (still marks missed)", () => {
+    const res = run("rollover", [missedThu()], { status: "paused" });
+    expect(res.statusUpdates).toEqual([{ id: "pd-thu", status: "missed" }]);
+    expect(res.rollovers).toEqual([]);
+  });
+
+  it("a make-up row does NOT suppress its week's grid; a rebase override still does", () => {
+    // Off-grid planned Wednesday NEXT week (week of 06-22).
+    const offGrid = { id: "pd-x", scheduledAt: d("2026-06-24"), status: "planned", hasDoseLog: false, protocolId: "proto-1" };
+    // With the rolledFromId marker → grid expands normally.
+    const withMarker = run("none", [{ ...offGrid, rolledFromId: "pd-orig" }]);
+    expect(withMarker.upserts.map((u) => KEY(u.scheduledAt))).toContain("2026-06-22");
+    // Same row WITHOUT the marker is a rebase override → suppresses the week.
+    const withoutMarker = run("none", [offGrid]);
+    expect(withoutMarker.upserts.map((u) => KEY(u.scheduledAt))).not.toContain("2026-06-22");
+  });
+});

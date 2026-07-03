@@ -480,3 +480,57 @@ export async function editDoseLog(input: EditDoseLogInput): Promise<{ ok: boolea
   revalidatePath("/"); revalidatePath("/inventory"); revalidatePath("/doses"); revalidatePath("/analytics");
   return { ok: true };
 }
+
+/**
+ * Deliberately skip a scheduled dose for a given day: planned → "skipped".
+ *
+ * Skip is a CANCEL, not a deferral — it silences the push re-nudges (status
+ * leaves "planned") and, unlike a dose that goes MISSED overnight, it never
+ * triggers the protocol's missedDosePolicy (no make-up dose, no schedule
+ * shift). Forgetting rolls over; deciding against it doesn't.
+ *
+ * The row may not exist yet (day outside the generated horizon) — in that
+ * case a skipped row is created so the overnight pass can't resurrect the day.
+ */
+export async function skipPlannedDose(input: { protocolId: string; dateKey: string }) {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false as const, error: "Not signed in." };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dateKey ?? "")) {
+    return { ok: false as const, error: "Invalid date." };
+  }
+  // Local midnight — the PlannedDose scheduledAt convention.
+  const scheduledAt = new Date(input.dateKey + "T00:00:00");
+
+  const protocol = await prisma.protocol.findFirst({
+    where: { id: input.protocolId, userId: user.id },
+    select: { id: true },
+  });
+  if (!protocol) return { ok: false as const, error: "Protocol not found." };
+
+  try {
+    // Only a still-planned row may be skipped (never clobber taken/missed).
+    const updated = await prisma.plannedDose.updateMany({
+      where: { protocolId: protocol.id, userId: user.id, scheduledAt, status: "planned" },
+      data: { status: "skipped" },
+    });
+    if (updated.count === 0) {
+      const existing = await prisma.plannedDose.findUnique({
+        where: { protocolId_scheduledAt: { protocolId: protocol.id, scheduledAt } },
+        select: { status: true },
+      });
+      if (existing) {
+        return { ok: false as const, error: `Already ${existing.status}.` };
+      }
+      await prisma.plannedDose.create({
+        data: { userId: user.id, protocolId: protocol.id, scheduledAt, status: "skipped" },
+      });
+    }
+  } catch (e) {
+    console.error("skipPlannedDose failed", e);
+    return { ok: false as const, error: "Could not skip the dose." };
+  }
+
+  revalidatePath("/"); revalidatePath("/today"); revalidatePath("/doses");
+  return { ok: true as const };
+}

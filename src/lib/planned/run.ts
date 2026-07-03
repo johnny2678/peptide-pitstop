@@ -12,9 +12,14 @@ import { materializePlannedDoses, type ProtocolInput } from "./materialize";
  * Safe to call concurrently: the unique index on (protocolId, scheduledAt)
  * prevents duplicate inserts; the transaction serializes the diff per call.
  */
-export async function runPlannedDoseGeneration(userId: string): Promise<{
+export async function runPlannedDoseGeneration(
+  userId: string,
+  // Internal: true on the post-shift regeneration pass — prevents recursion.
+  isRerun = false,
+): Promise<{
   upserted: number;
   markedMissed: number;
+  rolledOver: number;
 }> {
   const today = startOfDay(new Date());
   const horizonStart = today;
@@ -56,6 +61,7 @@ export async function runPlannedDoseGeneration(userId: string): Promise<{
     startDate: p.startDate,
     endDate: p.endDate,
     scheduleType: p.scheduleType,
+    missedDosePolicy: p.missedDosePolicy,
     steps: p.steps.map((s) => ({
       stepIndex: s.stepIndex,
       dose: s.dose.toString(),
@@ -85,10 +91,11 @@ export async function runPlannedDoseGeneration(userId: string): Promise<{
     scheduledAt: new Date(r.scheduledAt),
     status: r.status,
     hasDoseLog: r.doseLog !== null,
+    rolledFromId: r.rolledFromId,
   }));
 
   // ── Run the pure planner ─────────────────────────────────────────────────
-  const { upserts, statusUpdates } = materializePlannedDoses({
+  const { upserts, statusUpdates, rollovers, scheduleShifts } = materializePlannedDoses({
     protocols,
     horizonStart,
     horizonEnd,
@@ -133,7 +140,66 @@ export async function runPlannedDoseGeneration(userId: string): Promise<{
         data: { status: "missed" },
       });
     }
+
+    // Missed-dose make-ups (policy rollover / rollover_shift). Upsert on the
+    // (protocolId, scheduledAt) key: if a row appeared concurrently the
+    // make-up is silently dropped (empty update) — never double-dose a day.
+    for (const r of rollovers) {
+      await tx.plannedDose.upsert({
+        where: {
+          protocolId_scheduledAt: { protocolId: r.protocolId, scheduledAt: r.scheduledAt },
+        },
+        update: {},
+        create: {
+          userId: r.userId,
+          protocolId: r.protocolId,
+          scheduledAt: r.scheduledAt,
+          targetDose: r.targetDose,
+          doseInputUnit: r.doseInputUnit,
+          status: "planned",
+          rolledFromId: r.rolledFromId,
+        },
+      });
+    }
+
+    // Schedule re-anchors (rollover_shift): rewrite the rule / move the
+    // interval anchor, then drop the STALE future grid — strictly-future,
+    // unactioned, non-make-up planned rows — so the regeneration pass below
+    // rebuilds them on the new grid instead of leaving old-grid orphans.
+    for (const s of scheduleShifts) {
+      const proto = rawProtocols.find((p) => p.id === s.protocolId);
+      if (!proto) continue;
+      await tx.protocol.update({
+        where: { id: s.protocolId },
+        data: {
+          ...(s.newScheduleRule !== null ? { scheduleRule: s.newScheduleRule } : {}),
+          ...(s.startDateDeltaDays > 0 && proto.startDate
+            ? { startDate: addDays(proto.startDate, s.startDateDeltaDays) }
+            : {}),
+        },
+      });
+      await tx.plannedDose.deleteMany({
+        where: {
+          protocolId: s.protocolId,
+          status: "planned",
+          rolledFromId: null,
+          scheduledAt: { gt: today },
+        },
+      });
+    }
   });
 
-  return { upserted: upserts.length, markedMissed: statusUpdates.length };
+  // Regenerate once after any shift so the horizon reflects the NEW grid in
+  // the same run (idempotent; isRerun stops it recursing further — the missed
+  // rows are no longer "planned", so a second shift cannot occur anyway).
+  if (scheduleShifts.length > 0 && !isRerun) {
+    const rerun = await runPlannedDoseGeneration(userId, true);
+    return {
+      upserted: upserts.length + rerun.upserted,
+      markedMissed: statusUpdates.length + rerun.markedMissed,
+      rolledOver: rollovers.length + rerun.rolledOver,
+    };
+  }
+
+  return { upserted: upserts.length, markedMissed: statusUpdates.length, rolledOver: rollovers.length };
 }

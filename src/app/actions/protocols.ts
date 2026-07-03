@@ -29,6 +29,7 @@ export interface ProtocolInput {
   scheduleType?: string;
   scheduleRule?: string;
   rebaseMode?: string;
+  missedDosePolicy?: string;
   adherenceWindowMin?: string;
   defaultSyringeId?: string;
   targetDose?: string;
@@ -94,6 +95,9 @@ export async function saveProtocol(input: ProtocolInput) {
     scheduleType: ["fixed_times", "interval", "titration"].includes(input.scheduleType ?? "") ? input.scheduleType! : "fixed_times",
     scheduleRule,
     rebaseMode: input.rebaseMode === "rolling" ? "rolling" : "fixed_anchor",
+    missedDosePolicy: ["none", "rollover", "rollover_shift"].includes(input.missedDosePolicy ?? "")
+      ? input.missedDosePolicy!
+      : "none",
     adherenceWindowMin: optInt(input.adherenceWindowMin) ?? 120,
     defaultSyringeId: input.defaultSyringeId || null,
     targetDose,

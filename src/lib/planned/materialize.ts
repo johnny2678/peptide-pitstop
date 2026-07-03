@@ -9,8 +9,9 @@
  *   falling back to DAILY.
  */
 
-import { startOfDay, addDays } from "../schedule/schedule";
+import { startOfDay, addDays, daysBetween } from "../schedule/schedule";
 import { parseSchedule, slotsOn, slotsInRange } from "../schedule/entries";
+import { shiftSchedule } from "../schedule/shift";
 import { resolveTitration } from "../titration/resolve";
 import { buildResolveInput, type DeliveredLogInput } from "../titration/from-protocol";
 
@@ -34,6 +35,8 @@ export interface ProtocolInput {
   scheduleType: string;
   /** This protocol's FULL delivered DoseLog history — drives the titration phase cursor. */
   deliveredLogs: DeliveredLogInput[];
+  /** none | rollover | rollover_shift — what missed-dose reconciliation does. Optional: absent = "none". */
+  missedDosePolicy?: string | null;
 }
 
 export interface ProtocolStepInput {
@@ -49,6 +52,8 @@ export interface PlannedDoseInput {
   scheduledAt: Date;
   status: string;           // "planned" | "taken" | "missed" | "skipped"
   hasDoseLog: boolean;
+  /** Set when this row is a missed-dose make-up. Optional: absent = null. */
+  rolledFromId?: string | null;
 }
 
 // ─── output types ─────────────────────────────────────────────────────────
@@ -67,11 +72,35 @@ export interface StatusUpdate {
   status: "missed";
 }
 
+/** A missed-dose make-up row to create (missedDosePolicy rollover / rollover_shift). */
+export interface RolloverUpsert {
+  protocolId: string;
+  userId: string;
+  scheduledAt: Date; // the make-up date (local midnight)
+  targetDose: string | null;
+  doseInputUnit: string;
+  /** The missed PlannedDose row this makes up for. */
+  rolledFromId: string;
+}
+
+/** A schedule re-anchor to apply (missedDosePolicy rollover_shift). */
+export interface ScheduleShift {
+  protocolId: string;
+  /** Re-serialised scheduleRule, or null when only the anchor moves. */
+  newScheduleRule: string | null;
+  /** Days to add to Protocol.startDate (interval/cycle anchor); 0 = leave it. */
+  startDateDeltaDays: number;
+}
+
 export interface MaterializeResult {
   /** Rows to upsert (keyed on protocolId + scheduledAt by the runner). */
   upserts: PlannedDoseUpsert[];
   /** Existing rows whose status should be updated to "missed". */
   statusUpdates: StatusUpdate[];
+  /** Make-up rows to create for missed doses (per policy). */
+  rollovers: RolloverUpsert[];
+  /** Schedule re-anchors to apply (rollover_shift only). */
+  scheduleShifts: ScheduleShift[];
 }
 
 // ─── local helpers ────────────────────────────────────────────────────────
@@ -137,6 +166,9 @@ export function materializePlannedDoses(args: {
   const offGridWeeks = new Set<ProtocolWeekKey>();
   for (const row of existing) {
     if (row.status !== "planned") continue;
+    // Make-up rows (missed-dose rollovers) are EXPECTED off-grid — they are
+    // not rebase overrides and must never suppress their week's grid.
+    if (row.rolledFromId != null) continue;
     const p = protocolMap.get(row.protocolId);
     if (!p || !p.scheduleRule) continue;
     const onGrid =
@@ -150,6 +182,12 @@ export function materializePlannedDoses(args: {
 
   // ── 2. Expand schedule grid → desired upsert set ─────────────────────────
   const upserts: PlannedDoseUpsert[] = [];
+
+  // Per-protocol resolved per-injection doses, kept for the rollover rows in
+  // step 3 (a make-up row wants the same day-level dose resolution the grid
+  // rows get).
+  type ResolvedSlot = { perInjectionValue: string; perInjectionUnit: string };
+  const resolvedByProtocol = new Map<string, Map<string, ResolvedSlot>>();
 
   for (const p of protocols) {
     // Only materialize active protocols.
@@ -192,6 +230,7 @@ export function materializePlannedDoses(args: {
       const k = KEY(rs.date);
       if (!resolvedByDate.has(k)) resolvedByDate.set(k, rs);
     }
+    resolvedByProtocol.set(p.id, resolvedByDate);
 
     for (const occ of occurrences) {
       // Suppress grid slots for weeks that already have override "planned" rows.
@@ -224,6 +263,8 @@ export function materializePlannedDoses(args: {
   // An existing "planned" row whose scheduledAt is strictly before today and
   // has no linked DoseLog → mark it "missed".
   const statusUpdates: StatusUpdate[] = [];
+  // Newly-missed non-make-up rows per protocol — candidates for rollover.
+  const missedByProtocol = new Map<string, PlannedDoseInput[]>();
 
   for (const row of existing) {
     if (row.status !== "planned") continue;
@@ -231,7 +272,69 @@ export function materializePlannedDoses(args: {
     const rowKey = KEY(row.scheduledAt);
     if (rowKey >= todayKey) continue; // today or future → not yet missed
     statusUpdates.push({ id: row.id, status: "missed" });
+    // Make-up rows that themselves get missed do NOT chain another make-up —
+    // one retry per missed dose, then the normal grid resumes.
+    if (row.rolledFromId != null) continue;
+    const list = missedByProtocol.get(row.protocolId) ?? [];
+    list.push(row);
+    missedByProtocol.set(row.protocolId, list);
   }
 
-  return { upserts, statusUpdates };
+  // ── 4. Missed-dose policy: rollover / rollover_shift ────────────────────
+  // At most ONE make-up per protocol per pass (the most recent miss) — after a
+  // multi-day outage the user gets one catch-up dose, not a backlog of them.
+  const rollovers: RolloverUpsert[] = [];
+  const scheduleShifts: ScheduleShift[] = [];
+
+  // Any existing row (any status) already occupying (protocol, day) blocks a
+  // make-up on that day — you don't make up a dose on a day you already dose.
+  const occupiedDays = new Set<string>();
+  for (const row of existing) occupiedDays.add(`${row.protocolId}:${KEY(row.scheduledAt)}`);
+
+  for (const [protocolId, missedRows] of missedByProtocol) {
+    const p = protocolMap.get(protocolId);
+    if (!p || p.status !== "active" || !p.scheduleRule) continue;
+    const policy = p.missedDosePolicy ?? "none";
+    if (policy !== "rollover" && policy !== "rollover_shift") continue;
+
+    const latest = missedRows.reduce((a, b) => (a.scheduledAt > b.scheduledAt ? a : b));
+
+    // Make-up lands the day after the miss; if the pass didn't run for days,
+    // clamp to today — a make-up in the past would be marked missed right back.
+    let makeupDate = startOfDay(addDays(latest.scheduledAt, 1));
+    if (KEY(makeupDate) < todayKey) makeupDate = today;
+    const delta = daysBetween(startOfDay(latest.scheduledAt), makeupDate);
+
+    // Guards: protocol still running on the make-up day, and that day is free
+    // (no existing row, no grid occurrence).
+    if (p.endDate && makeupDate > startOfDay(p.endDate)) continue;
+    if (occupiedDays.has(`${protocolId}:${KEY(makeupDate)}`)) continue;
+    if (slotsOn(parseSchedule(p.scheduleRule), makeupDate, p.startDate, p.endDate).length > 0) continue;
+
+    // Same day-level dose resolution the grid rows get; resolver misses fall
+    // back exactly like step 2 (never persist an undivided per_week figure).
+    const slot = resolvedByProtocol.get(protocolId)?.get(KEY(makeupDate));
+    const resolvedValue = slot && slot.perInjectionValue !== "" ? slot.perInjectionValue : null;
+    rollovers.push({
+      protocolId,
+      userId: p.userId,
+      scheduledAt: makeupDate,
+      targetDose: resolvedValue ?? (p.doseBasis === "per_week" ? null : p.targetDose),
+      doseInputUnit: slot ? slot.perInjectionUnit : p.doseInputUnit,
+      rolledFromId: latest.id,
+    });
+
+    if (policy === "rollover_shift") {
+      const shift = shiftSchedule(p.scheduleRule, delta);
+      if (shift.newRule !== null || shift.shiftStartDate) {
+        scheduleShifts.push({
+          protocolId,
+          newScheduleRule: shift.newRule,
+          startDateDeltaDays: shift.shiftStartDate ? delta : 0,
+        });
+      }
+    }
+  }
+
+  return { upserts, statusUpdates, rollovers, scheduleShifts };
 }

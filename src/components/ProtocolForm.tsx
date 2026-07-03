@@ -67,6 +67,7 @@ export function ProtocolForm({
           source: "manual",
           scheduleType: "fixed_times",
           rebaseMode: "fixed_anchor",
+          missedDosePolicy: "none",
           doseInputUnit: "mcg",
           doseBasis: "per_injection",
           status: "active",
@@ -355,6 +356,24 @@ export function ProtocolForm({
           </select>
         </label>
       </div>
+
+      <label className="block text-sm text-muted">If a dose is missed
+        <select
+          className={input + " mt-1"}
+          value={form.missedDosePolicy ?? "none"}
+          onChange={(e) => set("missedDosePolicy", e.target.value)}
+        >
+          <option value="none">do nothing — next dose as scheduled</option>
+          <option value="rollover">make it up the next day (schedule unchanged)</option>
+          <option value="rollover_shift">make it up the next day and shift the schedule</option>
+        </select>
+        {form.missedDosePolicy === "rollover_shift" && (
+          <p className="mt-1 text-xs text-muted">
+            The whole cadence moves with the make-up — e.g. Mon/Thu missed on Thursday, taken
+            Friday, becomes Tue/Fri. Deliberate skips (the Skip button) never shift anything.
+          </p>
+        )}
+      </label>
 
       <label className="block text-sm text-muted">Default syringe
         <select className={input + " mt-1"} value={form.defaultSyringeId ?? ""} onChange={(e) => set("defaultSyringeId", e.target.value)}>

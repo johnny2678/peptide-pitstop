@@ -33,6 +33,7 @@ export default async function EditProtocolPage({ params }: { params: { id: strin
     scheduleType: protocol.scheduleType,
     scheduleRule: protocol.scheduleRule ?? undefined,
     rebaseMode: protocol.rebaseMode,
+    missedDosePolicy: protocol.missedDosePolicy,
     adherenceWindowMin: String(protocol.adherenceWindowMin),
     defaultSyringeId: protocol.defaultSyringeId ?? undefined,
     targetDose: protocol.targetDose?.toString() ?? undefined,

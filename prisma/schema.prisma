@@ -182,6 +182,13 @@ model Protocol {
   scheduleRule         String? // RRULE-like / JSON
   rebaseMode           String    @default("fixed_anchor") // fixed_anchor | rolling
   adherenceWindowMin   Int       @default(120)
+  // What the overnight pass does when a dose of THIS protocol is marked missed:
+  //   none           — nothing (default; next dose at the next grid slot)
+  //   rollover       — one make-up dose the next day; the grid is untouched
+  //   rollover_shift — make-up dose AND the schedule re-anchors by the slip
+  //                    (Mon/Thu missed Thu → taken Fri → grid becomes Tue/Fri)
+  // Deliberate skips (status "skipped") never trigger this — missed only.
+  missedDosePolicy     String    @default("none") // none | rollover | rollover_shift
   defaultSyringeId     String?
   targetDose           Decimal?
   doseInputUnit        String    @default("mcg") // mcg | mg | ml | units
@@ -234,6 +241,11 @@ model PlannedDose {
   generatedFromStep Int?
   reminderSentAt  DateTime? // LAST nudge time (re-nudges update it); null = never nudged
   reminderCount   Int      @default(0) // nudges sent so far (capped — see reminders.ts)
+  // Set when this row is a missed-dose make-up (points at the missed row).
+  // Distinguishes rollover rows from confirmRebase overrides so the planner's
+  // off-grid suppression ignores them (soft ref, no @relation — same pattern
+  // as Protocol.vialId).
+  rolledFromId    String?
 
   doseLog DoseLog?
 
