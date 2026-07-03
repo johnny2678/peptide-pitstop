@@ -232,7 +232,8 @@ model PlannedDose {
   doseInputUnit   String?
   status          String   @default("planned") // planned | taken | missed | skipped
   generatedFromStep Int?
-  reminderSentAt  DateTime?
+  reminderSentAt  DateTime? // LAST nudge time (re-nudges update it); null = never nudged
+  reminderCount   Int      @default(0) // nudges sent so far (capped — see reminders.ts)
 
   doseLog DoseLog?
 

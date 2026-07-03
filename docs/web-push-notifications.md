@@ -17,13 +17,20 @@ installed PWA it opens **fullscreen** in the app itself.
 ## How it works
 
 - A 15-minute tick in the app (`src/instrumentation.ts` → `runReminders`) finds
-  `PlannedDose` rows that are `status:"planned"`, not yet reminded, on an
-  **active** protocol, and scheduled within `[now - 30 min, now + 30 min]`.
-- Each due dose is **claimed atomically** (`reminderSentAt` stamp — never
-  reminded twice), then one push fans out to **every device you enrolled**
-  (each browser / installed PWA is its own subscription).
-- A fixed notification `tag` means a repeat nudge **replaces** the previous one
-  — you never see a stack.
+  `PlannedDose` rows that are `status:"planned"`, on an **active** protocol,
+  and scheduled within `[now - 30 min, now + 30 min]`.
+- Each nudge is **claimed atomically** (optimistic `reminderCount` token —
+  concurrent ticks can never double-send), then one push fans out to **every
+  device you enrolled** (each browser / installed PWA is its own subscription).
+- **Repeats until you log it:** while the dose stays `planned`, it re-nudges
+  every 30 minutes, up to 3 nudges total. Logging or skipping the dose stops
+  the loop — that's the "snooze": ignore the nudge and it comes back. (iOS web
+  push has no notification action buttons, so persistence is server-side.)
+- Doses whose scheduled time is more than 2 h past never re-nudge — after a
+  server outage you won't get buzzed about stale doses (the Today screen still
+  shows them, and the daily pass marks them missed).
+- A fixed notification `tag` means every nudge **replaces** the previous one —
+  you never see a stack.
 - If you have **no enrolled devices**, doses are left unclaimed, so enabling
   notifications mid-window still gets you the nudge.
 - If VAPID keys are unset the feature is dormant (logged once, no crash).
