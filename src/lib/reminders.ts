@@ -1,17 +1,24 @@
 /**
- * HA push reminders (Work-stream 2).
+ * Dose reminders over Web Push.
  *
- * When a scheduled dose is due soon, push a notification to Home Assistant
- * (which relays it to your phone) exactly once per dose.
+ * When a scheduled dose is due soon, push a notification to every device the
+ * user enabled notifications on (installed PWA / browser), exactly once per
+ * dose. This replaced the Home Assistant webhook relay — the transport is now
+ * `src/lib/push.ts` and no HA automation is involved.
  *
  * Split into:
  *   - `dueReminders` — a PURE, unit-tested predicate over candidate doses.
- *   - `sendDueReminders` / `runReminders` — impure: load candidates, POST to
- *     `HA_WEBHOOK_URL`, and stamp `reminderSentAt` idempotently.
+ *   - `sendDueReminders` / `runReminders` — impure: load candidates, send the
+ *     push, and stamp `reminderSentAt` idempotently.
+ *
+ * PRIVACY: the notification is a generic "time to review" nudge — peptide,
+ * dose and time never appear in it (lock-screen rule; see push.ts).
  *
  * TZ: the container runs Australia/Brisbane, so the stored `Date`s and `now`
  * compare correctly in local time — no offset maths needed (just `Date` vs `now`).
  */
+
+import { isPushConfigured, sendPushToUser, type PushMessage } from "@/lib/push";
 
 // ── Tuning ───────────────────────────────────────────────────────────────────
 //
@@ -23,21 +30,19 @@
 export const REMINDER_GRACE_MINUTES = 30;
 export const REMINDER_LOOKAHEAD_MINUTES = 30;
 
+/** The one nudge we ever send. Generic on purpose — see the privacy note above. */
+const REMINDER_MESSAGE: PushMessage = {
+  title: "Pitstop",
+  body: "Time to review — tap to open.",
+  url: "/today",
+  tag: "peptide-pitstop-nudge", // fixed tag → a repeat replaces, never stacks
+};
+
 /** Minimal shape the pure finder needs — richer objects pass through unchanged. */
 export interface ReminderCandidate {
   scheduledAt: Date;
   status: string;
   reminderSentAt: Date | null;
-}
-
-/** Notification body POSTed to HA. SAFETY: peptide + local time + protocolId ONLY. */
-export interface ReminderPayload {
-  /** Peptide display name. */
-  peptide: string;
-  /** Scheduled local time, "HH:MM". */
-  time: string;
-  /** Protocol the dose belongs to (lets the HA side deep-link / dedup). */
-  protocolId: string;
 }
 
 /**
@@ -46,7 +51,7 @@ export interface ReminderPayload {
  *   - `reminderSentAt == null`,
  *   - `scheduledAt` within `[now - GRACE, now + lookaheadMinutes]` (inclusive).
  *
- * Generic so the impure caller gets its own (peptide-bearing) rows back, typed.
+ * Generic so the impure caller gets its own richer rows back, typed.
  */
 export function dueReminders<T extends ReminderCandidate>(
   candidates: readonly T[],
@@ -65,51 +70,19 @@ export function dueReminders<T extends ReminderCandidate>(
 
 // ── Impure side ──────────────────────────────────────────────────────────────
 
-let warnedNoWebhook = false;
-
-/** Resolve the HA webhook URL; log ONCE per process when it is unset/empty. */
-function getWebhookUrl(): string | null {
-  const url = process.env.HA_WEBHOOK_URL;
-  if (!url || url.trim() === "") {
-    if (!warnedNoWebhook) {
-      console.log("[reminders] HA_WEBHOOK_URL not set — push reminders dormant");
-      warnedNoWebhook = true;
-    }
-    return null;
-  }
-  return url;
-}
-
-/** Local "HH:MM" of a Date (container TZ = Australia/Brisbane). */
-function localHHMM(d: Date): string {
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** POST the payload to HA with a short timeout so a hung HA never stalls the tick. */
-async function postToHa(url: string, payload: ReminderPayload): Promise<void> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5_000);
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`HA webhook returned ${res.status}`);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /**
- * Send reminders for one user's due planned doses. Returns the number sent.
+ * Send reminders for one user's due planned doses. Returns the number of doses
+ * reminded (not the number of devices reached — one dose fans out to all of the
+ * user's subscriptions).
+ *
+ * If the user has NO push subscriptions yet, doses are left unstamped: they stay
+ * eligible, so enabling notifications mid-window still produces the nudge.
  *
  * No-double-send guarantee: each dose is *claimed* with an atomic
  * `updateMany({ where: { reminderSentAt: null, ... }, data: { reminderSentAt } })`.
  * Only the caller whose update flips the row from null wins (`count === 1`), so two
  * concurrent ticks (15-min interval + the manual cron route) can never both push.
- * We claim BEFORE posting: if the HA POST then fails the dose stays stamped and is
+ * We claim BEFORE sending: if the push then fails the dose stays stamped and is
  * not retried — a deliberate trade favouring "never double-send" over re-delivery.
  */
 export async function sendDueReminders(
@@ -117,10 +90,13 @@ export async function sendDueReminders(
   now: Date = new Date(),
   lookaheadMinutes: number = REMINDER_LOOKAHEAD_MINUTES,
 ): Promise<number> {
-  const webhookUrl = getWebhookUrl();
-  if (!webhookUrl) return 0;
+  if (!isPushConfigured()) return 0;
 
   const { prisma } = await import("@/lib/db");
+
+  // No devices to notify → don't burn the doses' one reminder on nobody.
+  const subCount = await prisma.pushSubscription.count({ where: { userId } });
+  if (subCount === 0) return 0;
 
   const lowerBound = new Date(now.getTime() - REMINDER_GRACE_MINUTES * 60_000);
   const upperBound = new Date(now.getTime() + lookaheadMinutes * 60_000);
@@ -136,17 +112,15 @@ export async function sendDueReminders(
     },
     select: {
       id: true,
-      protocolId: true,
       scheduledAt: true,
       status: true,
       reminderSentAt: true,
-      protocol: { select: { peptide: { select: { name: true } } } },
     },
   });
 
   const due = dueReminders(candidates, now, lookaheadMinutes);
 
-  let sent = 0;
+  let reminded = 0;
   for (const dose of due) {
     // Atomic claim — concurrent ticks can't both win this row.
     const claim = await prisma.plannedDose.updateMany({
@@ -155,33 +129,28 @@ export async function sendDueReminders(
     });
     if (claim.count !== 1) continue; // already claimed by another tick
 
-    const payload: ReminderPayload = {
-      peptide: dose.protocol?.peptide?.name ?? "Peptide",
-      time: localHHMM(dose.scheduledAt),
-      protocolId: dose.protocolId,
-    };
-
     try {
-      await postToHa(webhookUrl, payload);
-      sent++;
+      const delivered = await sendPushToUser(userId, REMINDER_MESSAGE);
+      if (delivered > 0) reminded++;
     } catch (err) {
-      // Fail-safe: HA down must never crash the tick. Row stays stamped (no retry).
+      // Fail-safe: a push failure must never crash the tick. Row stays stamped
+      // (no retry) — and the fixed tag means the user lost nothing they'd see.
       console.error(`[reminders] failed to push reminder for dose ${dose.id}:`, err);
     }
   }
-  return sent;
+  return reminded;
 }
 
 /**
  * Run reminders for every user with an active protocol. Used by both the cron
- * route and the instrumentation interval. No-op (logged once) if HA_WEBHOOK_URL
- * is unset.
+ * route and the instrumentation interval. No-op (logged once) if VAPID keys
+ * are unset.
  */
 export async function runReminders(
   now: Date = new Date(),
   lookaheadMinutes: number = REMINDER_LOOKAHEAD_MINUTES,
 ): Promise<{ sent: number }> {
-  if (!getWebhookUrl()) return { sent: 0 };
+  if (!isPushConfigured()) return { sent: 0 };
 
   const { prisma } = await import("@/lib/db");
   const users = await prisma.user.findMany({

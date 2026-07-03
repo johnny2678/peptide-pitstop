@@ -1,6 +1,6 @@
 /**
  * Next.js instrumentation hook — runs once at server startup (Node runtime only).
- * Starts a daily PlannedDose generation tick AND a 15-minute HA reminder tick.
+ * Starts a daily PlannedDose generation tick AND a 15-minute push-reminder tick.
  *
  * Guard: NEXT_RUNTIME === "nodejs" ensures this never fires in the Edge runtime
  * or during the build/static-generation pass. We use a dependency-free
@@ -10,7 +10,7 @@
  * "once now, then every 24 h" is sufficient and self-heals a missed tick.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
-const REMINDER_MS = 15 * 60 * 1000; // HA reminder tick — see REMINDER_GRACE_MINUTES
+const REMINDER_MS = 15 * 60 * 1000; // push-reminder tick — see REMINDER_GRACE_MINUTES
 
 async function runForAllUsers() {
   const { prisma } = await import("@/lib/db");
@@ -138,7 +138,7 @@ export async function register() {
 
   console.log("[planned-doses] daily tick scheduled (every 24h)");
 
-  // HA reminders: a separate, shorter cadence. Fire once now (catch-up) then
+  // Push reminders: a separate, shorter cadence. Fire once now (catch-up) then
   // every 15 min. Idempotent stamping (reminderSentAt) makes overlap safe.
   void runRemindersTick();
   setInterval(() => {

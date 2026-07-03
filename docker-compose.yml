@@ -11,7 +11,11 @@ services:
       - DATABASE_URL=file:/data/peptides.db
       - PT_FIELD_KEY=${PT_FIELD_KEY}
       - AUTH_SECRET=${AUTH_SECRET}
-      - HA_WEBHOOK_URL=${HA_WEBHOOK_URL}
+      # Web Push dose reminders (optional — dormant when unset). Generate once:
+      #   npx web-push generate-vapid-keys
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
+      - VAPID_SUBJECT=${VAPID_SUBJECT}
     volumes:
       - ./data:/data            # SQLite database + app data — back this directory up
     ports:

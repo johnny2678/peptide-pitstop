@@ -12,6 +12,7 @@ import { StackBuilder } from "@/components/StackBuilder";
 import { StackCard } from "@/components/StackCard";
 import { getStacks } from "@/lib/stacks/server";
 import { SyringeManager } from "@/components/SyringeManager";
+import { PushNotificationsCard } from "@/components/PushNotificationsCard";
 import { ReorderDefaultsForm } from "@/components/ReorderDefaultsForm";
 import { WellnessSettingsForm } from "@/components/WellnessSettingsForm";
 import { ReportExportForm } from "@/components/ReportExportForm";
@@ -181,6 +182,10 @@ export default async function SettingsPage() {
             hydrationTargetMl={user.hydrationTargetMl ?? null}
             symptomList={parseSymptomOverride(user.symptomList)}
           />
+
+          {/* Runtime env (NOT NEXT_PUBLIC_*): the Docker image is built without
+              deploy env, so the key must flow server → client as a prop. */}
+          <PushNotificationsCard vapidPublicKey={(process.env.VAPID_PUBLIC_KEY ?? "").trim() || null} />
 
           <section className="mt-8">
             <h2 className="mb-1 text-sm font-medium text-muted">Data export</h2>

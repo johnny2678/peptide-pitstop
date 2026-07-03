@@ -12,7 +12,7 @@ function tokenValid(token: string | undefined, secret: string): boolean {
 /**
  * POST /api/cron/reminders
  *
- * Pushes HA reminders for any due planned doses across all users. Protected by a
+ * Pushes web-push reminders for any due planned doses across all users. Protected by a
  * bearer token equal to CRON_SECRET (same mechanism as /api/cron/planned). If
  * CRON_SECRET is unset it falls back to AUTH_SECRET (the JWT signing key) for
  * backward compatibility with the live triggers — set CRON_SECRET to stop

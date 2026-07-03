@@ -43,7 +43,7 @@ This is the whole point. Health data this sensitive shouldn't live in a vendor's
 - **Runs on your own machine.** A single Docker container on your own server (any Docker host — Linux, NAS, Raspberry Pi, etc.). No SaaS, no managed backend, no account on a service that can change its terms, get breached, or shut down.
 - **Local-only accounts.** There is no public sign-up. The owner provisions the account locally; first run forces a `/setup` flow to set a password and enrol TOTP. Login requires **password + TOTP**, with signed httpOnly session cookies.
 - **Encryption in depth.** Identifying free-text and lab values are encrypted at the application layer with **AES-256-GCM** before they ever touch disk; ideally the database file itself sits on an encrypted disk too. Encrypted columns are opaque — they're never used in query filters.
-- **No tracking, no analytics SDKs, no CDN.** There is no Google Analytics, Sentry, PostHog, or any usage telemetry — nothing reports your behaviour to anyone. The app's analytics are computed locally from your database, and fonts are **self-hosted** (served from your own server, not Google Fonts or any CDN). The only outbound traffic is the services *you* configure — your Cloudflare Tunnel, your Home Assistant webhook, your Garmin sync — plus an optional dosage-reference lookup that runs **only when you explicitly trigger it**.
+- **No tracking, no analytics SDKs, no CDN.** There is no Google Analytics, Sentry, PostHog, or any usage telemetry — nothing reports your behaviour to anyone. The app's analytics are computed locally from your database, and fonts are **self-hosted** (served from your own server, not Google Fonts or any CDN). The only outbound traffic is the services *you* configure — your Cloudflare Tunnel, dose-reminder web push (end-to-end encrypted through your browser vendor's push service), your Garmin sync — plus an optional dosage-reference lookup that runs **only when you explicitly trigger it**.
 - **You hold the backups.** Continuous SQLite replication via [Litestream](https://litestream.io/) to a backup location you own — plus your normal server backup routine.
 - **Export everything, any time.** One-click CSV export for doses, lab panels, journal entries, and wearable data, plus a formatted PDF report. Your record is portable by design — never locked in.
 - **No open ports, no public surface.** Reach it from your phone anywhere via your own Cloudflare Tunnel + Cloudflare Access policy — nothing is exposed to the open internet.
@@ -100,7 +100,7 @@ The motorsport "pit-wall" dark theme ships alongside a clean light theme, and th
 - **Journal & wellness.** Free-text journal plus wellness logging, charted over time.
 
 ### Integrations
-- **Home Assistant reminders.** Dose reminders pushed via a Home Assistant webhook to your phone — free, no third-party notification service.
+- **Web Push dose reminders.** Native push notifications from the installed PWA — iPhone (iOS 16.4+ Home Screen app), Android, and desktop. Privacy-safe generic nudge (no peptide names on the lock screen), delivered end-to-end encrypted, no Home Assistant or third-party notification account needed. See [docs/web-push-notifications.md](docs/web-push-notifications.md).
 - **Garmin wellness.** A bundled sync sidecar pulls daily Garmin wellness data (steps, sleep, etc.) into the app using your own credentials, on your own schedule.
 - **Curated peptide library + enrichment.** Built-in peptide reference data with an enrichment calculator.
 
@@ -242,7 +242,8 @@ Set your timezone with `TZ` (e.g. `TZ=America/New_York`) so local-midnight sched
 | `PT_FIELD_KEY` | 32-byte base64 key for AES-256-GCM field encryption |
 | `AUTH_SECRET` | Session signing secret |
 | `DATABASE_URL` | SQLite path (maps to the `/data` volume) |
-| `HA_WEBHOOK_URL` | Home Assistant webhook for dose reminders |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web Push keys for dose reminders (`npx web-push generate-vapid-keys`) |
+| `VAPID_SUBJECT` | Optional `mailto:` contact sent to push services |
 | `WELLNESS_IMPORT_TOKEN` | Bearer token the Garmin sidecar presents (fails closed if unset) |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Your Cloudflare Tunnel token |
 | `GARMIN_EMAIL` / `GARMIN_PASSWORD` | Consumed only by the Garmin sync sidecar |
@@ -264,7 +265,7 @@ sqlite3 /path/to/peptides.db \
 
 ## 📚 Further documentation
 
-- [Home Assistant dose-reminder automation](docs/ha-reminder-automation.md) — wiring the reminder webhook to Companion push.
+- [Web Push dose reminders](docs/web-push-notifications.md) — VAPID setup, the HTTPS requirement, and per-device enrolment (replaces the old Home Assistant webhook relay).
 
 > Apple Health is intentionally **not** a built-in integration: HealthKit is device-only and a self-hosted web app cannot write to it. See [the Shortcut workaround](docs/apple-health-shortcut.md) if you want a manual bridge.
 

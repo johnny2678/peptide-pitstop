@@ -29,3 +29,12 @@ __pycache__/
 prisma/prisma/
 prisma/scratch*.db
 .env.designdev
+
+# Private / local-only files — real hosts, LAN IPs, notify services, deploy
+# specifics. Keep your filled-in copy as <name>.local.md next to the public
+# template. (Covers DEPLOY.local.md — the homelab deploy plan w/ unraid + the
+# restricted SSH filter — and docs/*.local.md deploy-ready snippets.)
+*.local.md
+*.local.yaml
+*.local.yml
+*.local.json

@@ -17,6 +17,17 @@ const nextConfig = {
     serverActions: { allowedOrigins: ["peptides.example.com", "peptides.example.com", "peptides-dev.example.com"] },
     instrumentationHook: true,
   },
+  webpack: (config, { nextRuntime }) => {
+    // instrumentation.ts is compiled for the Edge runtime too, and webpack
+    // follows even dynamic imports — so web-push (node builtins via
+    // https-proxy-agent) breaks the edge bundle exactly like node-cron did.
+    // Stub it out of the edge compile; the NEXT_RUNTIME === "nodejs" guard
+    // means that code path never runs on edge anyway.
+    if (nextRuntime === "edge") {
+      config.resolve.alias["web-push"] = false;
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

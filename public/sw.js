@@ -128,3 +128,48 @@ self.addEventListener("sync", (event) => {
     );
   }
 });
+
+// ── Web Push: dose reminders ──────────────────────────────────────────────────
+// The server sends a small JSON payload ({title, body, url, tag} — see
+// src/lib/push.ts). PRIVACY: the payload is a generic nudge by design; never
+// add peptide/dose/time here — the notification is visible on the lock screen.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Non-JSON push (shouldn't happen) — fall through to the generic nudge.
+  }
+  // iOS REVOKES the push subscription if a push arrives and no notification is
+  // shown, so this must unconditionally show one — no silent pushes, ever.
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Pitstop", {
+      body: data.body || "Time to review — tap to open.",
+      tag: data.tag || "peptide-pitstop-nudge", // same tag → replaces, never stacks
+      icon: "/icons/icon-pitstop-192.png",
+      badge: "/icons/icon-pitstop-192.png",
+      data: { url: data.url || "/today" },
+    })
+  );
+});
+
+// Tap → focus an open app window (navigated to the target) or open a new one.
+// From an installed PWA this opens fullscreen — the whole point of web push
+// over the old Home Assistant relay, which could only deep-link into Safari.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/today";
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((wins) => {
+        for (const win of wins) {
+          if ("focus" in win) {
+            win.navigate(url);
+            return win.focus();
+          }
+        }
+        return self.clients.openWindow(url);
+      })
+  );
+});
